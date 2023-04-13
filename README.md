@@ -1,8 +1,54 @@
 # api.multiqc.info
 
-Code for api.multiqc.info, providing run-time information about available updates.
+Code for [api.multiqc.info](https://api.multiqc.info), providing run-time information about available updates.
 
-## Running locally
+## Introduction
+
+The API is a simple tool to provide a metadata endpoint for MultiQC runs.
+There is currently a single endpoint that is used - `/version`.
+
+The `/version` endpoint returns:
+
+- Information about the latest available release
+  - MultiQC uses this to print a log message advising if the current version is out of date, with information about how to upgrade.
+- _[Planned]_: Broadcast messages
+  - Can be used to announce arbitrary information, such as critical changes.
+  - No usage currently anticipated, this is mostly a future-proofing tool.
+- _[Planned]_: Module-specific warnings
+  - Warnings scoped to module and MultiQC version
+  - Will allow MultiQC to notify end users via the log if the module that they are running has serious bugs or errors.
+
+## Logged metrics
+
+MultiQC supplies _some_ information to the API when it requests this endpoint.
+This is used to gather metrics on MultiQC usage and tailor development efforts.
+
+Currently, it reports:
+
+- MultiQC version
+- _[Planned]_: Python version
+- _[Planned]_: Operating system (linux|osx|windows|unknown)
+- _[Planned]_: Installation method (pip|conda|docker|unknown)
+- _[Planned]_: CI environment (GitHub Actions|none)
+
+No identifying information is collected. No IPs are logged, no information about what MultiQC is being used for or where, no sample data or metadata is transferred. All code in both MultiQC and this API is open source and can be inspected.
+
+This version check can be disabled by adding `no_version_check: true` to your MultiQC config (see [docs](https://multiqc.info/docs/getting_started/config/#checks-for-new-versions)).
+
+The request uses a very short timeout (2 seconds) and fails silently if MultiQC has no internet connection or an unexpected response is returned.
+
+## Production deployment
+
+A docker image is available for the app here:
+
+```
+ghcr.io/multiqc/apimultiqcinfo:latest
+```
+
+## Development
+
+> **Note:**
+> These instructions are intended for local development work, not a production deployment.
 
 Create an `.env` file and replace the `xxx`s with random strings.
 Set `UVICORN_RELOAD=--reload` to enable hot-reloading when you save files.
