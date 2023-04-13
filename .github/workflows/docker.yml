@@ -3,6 +3,9 @@ name: Build docker image
 on:
   push:
     branches: [main]
+    paths:
+      - app/**
+      - Dockerfile
 
 jobs:
   astro_docker:
