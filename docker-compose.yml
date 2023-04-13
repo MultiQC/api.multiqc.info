@@ -4,9 +4,9 @@ services:
     container_name: multiqc_api
     restart: always
     build: .
-    command: uvicorn app.main:app --host 0.0.0.0
+    command: uvicorn app.main:app ${UVICORN_RELOAD} --host 0.0.0.0
     volumes:
-      - .:/app
+      - .:/code
     ports:
       - 8008:8000
     # Set in .env
@@ -14,7 +14,8 @@ services:
     environment:
       DATABASE_URL: mysql+pymysql://$MYSQL_USER:$MYSQL_PASSWORD@db:3306/$MYSQL_DB
     depends_on:
-      - db
+      wait-for-db:
+        condition: service_completed_successfully
   db:
     image: mysql:8.0
     container_name: multiqc_db
@@ -29,3 +30,8 @@ services:
       MYSQL_DATABASE: $MYSQL_DB
       MYSQL_USER: $MYSQL_USER
       MYSQL_PASSWORD: $MYSQL_PASSWORD
+  wait-for-db:
+    image: atkrad/wait4x
+    depends_on:
+      - db
+    command: tcp db:3306 -t 30s -i 250ms
