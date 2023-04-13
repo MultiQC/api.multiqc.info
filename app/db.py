@@ -1,13 +1,16 @@
+"""Functions to interact with the database."""
+
 from datetime import datetime
-from typing import Optional
-from sqlmodel import Field, Session, SQLModel, create_engine, select
 from os import getenv
+from typing import Optional
+
+from sqlmodel import create_engine, Field, select, Session, SQLModel
 
 sql_url = getenv("DATABASE_URL")
 engine = create_engine(sql_url)
 
 
-class Visit(SQLModel, table=True):
+class Visit(SQLModel, table=True):  # type: ignore # mypy doesn't like this, not sure why
     """Table to record raw individual visits to the version endpoint."""
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -15,9 +18,7 @@ class Visit(SQLModel, table=True):
     version_python: Optional[str] = None
     operating_system: Optional[str] = None
     installation_method: Optional[str] = None
-    called_at: Optional[datetime] = Field(
-        default_factory=datetime.utcnow, nullable=False
-    )
+    called_at: Optional[datetime] = Field(default_factory=datetime.utcnow, nullable=False)
 
 
 def create_db_and_tables():

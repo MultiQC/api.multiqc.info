@@ -1,5 +1,6 @@
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.responses import PlainTextResponse
+
 from . import db
 
 LATEST_RELEASE = "v1.14"
