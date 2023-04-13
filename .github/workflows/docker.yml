@@ -8,7 +8,7 @@ on:
       - Dockerfile
 
 jobs:
-  astro_docker:
+  docker:
     if: github.repository == 'MultiQC/api.multiqc.info'
     name: Build + push app docker image
     runs-on: ubuntu-latest
