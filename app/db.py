@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from os import getenv
-from typing import Optional
 
 from sqlmodel import create_engine, Field, select, Session, SQLModel
 
@@ -13,12 +12,13 @@ engine = create_engine(sql_url)
 class Visit(SQLModel, table=True):  # type: ignore # mypy doesn't like this, not sure why
     """Table to record raw individual visits to the version endpoint."""
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    version_multiqc: Optional[str] = None
-    version_python: Optional[str] = None
-    operating_system: Optional[str] = None
-    installation_method: Optional[str] = None
-    called_at: Optional[datetime] = Field(default_factory=datetime.utcnow, nullable=False)
+    id: int | None = Field(default=None, primary_key=True)
+    version_multiqc: str | None = None
+    version_python: str | None = None
+    operating_system: str | None = None
+    installation_method: str | None = None
+    ci_environment: str | None = None
+    called_at: datetime | None = Field(default_factory=datetime.utcnow, nullable=False)
 
 
 def create_db_and_tables():

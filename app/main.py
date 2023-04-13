@@ -1,9 +1,21 @@
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.responses import PlainTextResponse
+from github import Github
 
-from . import db
+from . import db, models
 
-LATEST_RELEASE = "v1.14"
+
+def get_latest_release() -> models.LatestRelease:
+    """Get the latest release from the database."""
+    g = Github()
+    repo = g.get_repo("ewels/MultiQC")
+    release = repo.get_latest_release()
+    return models.LatestRelease(
+        version=release.tag_name,
+        release_date=release.published_at.date(),
+        html_url=release.html_url,
+    )
+
 
 app = FastAPI()
 
@@ -12,6 +24,7 @@ app = FastAPI()
 def on_startup():
     """Initialise the DB and tables on server startup."""
     db.create_db_and_tables()
+    app.latest_release = get_latest_release()
 
 
 @app.get("/")
@@ -23,7 +36,9 @@ async def index(background_tasks: BackgroundTasks):
     """
     return {
         "message": "Welcome to the MultiQC service API",
-        "available_endpoints": [{"path": route.path, "name": route.name} for route in app.routes],
+        "available_endpoints": [
+            {"path": route.path, "name": route.name} for route in app.routes if route.name != "swagger_ui_redirect"
+        ],
     }
 
 
@@ -34,14 +49,9 @@ async def version(
     version_python: str | None = None,
     operating_system: str | None = None,
     installation_method: str | None = None,
+    ci_environment: str | None = None,
 ):
-    """
-    Endpoint for MultiQC that returns the latest release.
-
-    Also return additional info such as a broadcast message, if needed.
-
-    Returns JSON response.
-    """
+    """Endpoint for MultiQC that returns the latest release, plus bonus info."""
     background_tasks.add_task(
         db.add_visit,
         db.Visit(
@@ -49,14 +59,10 @@ async def version(
             version_python=version_python,
             operating_system=operating_system,
             installation_method=installation_method,
+            ci_environment=ci_environment,
         ),
     )
-    return {
-        "latest_release": LATEST_RELEASE,
-        "broadcast_message": "",
-        "latest_release_date": "2023-01-23",
-        "module_warnings": [],
-    }
+    return models.VersionResponse(latest_release=app.latest_release)
 
 
 @app.get("/version.php", response_class=PlainTextResponse)
@@ -68,7 +74,7 @@ async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None
     after being redirected to by https://multiqc.info/version.php
     """
     background_tasks.add_task(db.add_visit, db.Visit(version_multiqc=v))
-    return LATEST_RELEASE
+    return app.latest_release.version
 
 
 @app.get("/usage")
