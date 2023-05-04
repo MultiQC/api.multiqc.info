@@ -1,5 +1,8 @@
 fastapi
-uvicorn
-sqlmodel
-pymysql[rsa]
+kaleido
+pandas
+plotly
 PyGithub
+pymysql[rsa]
+sqlmodel
+uvicorn

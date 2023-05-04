@@ -1,4 +1,5 @@
-from datetime import date
+import datetime
+from enum import Enum
 
 from pydantic import BaseModel, HttpUrl
 
@@ -7,7 +8,7 @@ class LatestRelease(BaseModel):
     """Model for the latest release."""
 
     version: str
-    release_date: date
+    release_date: datetime.date
     html_url: HttpUrl
 
 
@@ -32,3 +33,32 @@ class VersionResponse(BaseModel):
     latest_release: LatestRelease
     broadcast_messages: list[BroadcastMessage] = []
     module_warnings: list[ModuleWarning] = []
+
+
+class IntervalTypes(str, Enum):
+    """Allowed intervals for the usage endpoint."""
+
+    S = "second"
+    T = "minute"
+    H = "hour"
+    D = "day"
+    W = "week"
+    M = "month"
+    Y = "year"
+
+
+class SortTypes(str, Enum):
+    """Allowed sort types for the usage endpoint."""
+
+    date_asc = "date_asc"
+    date_desc = "date_desc"
+
+
+class UsageCategory(str, Enum):
+    """How to categorise the usage data."""
+
+    version_multiqc = "version_multiqc"
+    version_python = "version_python"
+    operating_system = "operating_system"
+    installation_method = "installation_method"
+    ci_environment = "ci_environment"

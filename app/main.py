@@ -1,13 +1,20 @@
+import datetime
+from enum import Enum
+from os import getenv
+
+import pandas as pd
+import plotly.express as px
 from fastapi import BackgroundTasks, FastAPI
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from github import Github
+from plotly.graph_objs import Layout
 
 from . import __version__, db, models
 
 
 def get_latest_release() -> models.LatestRelease:
     """Get the latest release from the database."""
-    g = Github()
+    g = Github(getenv("GITHUB_TOKEN"))
     repo = g.get_repo("ewels/MultiQC")
     release = repo.get_latest_release()
     return models.LatestRelease(
@@ -85,7 +92,90 @@ async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None
     return app.latest_release.version
 
 
-@app.get("/usage")
-async def usage_raw():
-    """Return raw usage data from today."""
-    return db.get_visits()
+class PlotlyImageFormats(str, Enum):
+    """Available Plotly image export formats."""
+
+    html = "html"
+    json = "json"
+    svg = "svg"
+    pdf = "pdf"
+    png = "png"
+
+
+class PlotlyTemplates(str, Enum):
+    """Available Plotly image export formats."""
+
+    plotly = "plotly"
+    plotly_white = "plotly_white"
+    plotly_dark = "plotly_dark"
+    ggplot2 = "ggplot2"
+    seaborn = "seaborn"
+    simple_white = "simple_white"
+    none = "none"
+
+
+@app.get("/plot_usage")
+async def usage_raw(
+    categories: models.UsageCategory | None = None,
+    interval: models.IntervalTypes = models.IntervalTypes.D,
+    start: datetime.datetime | None = None,
+    end: datetime.datetime | None = None,
+    limit: int = 100000,
+    format: PlotlyImageFormats = PlotlyImageFormats.png,
+    template: PlotlyTemplates = PlotlyTemplates.simple_white,
+):
+    """Plot usage metrics."""
+    # Get visit data
+    visits = db.get_visits(start=start, end=end, limit=limit)
+    # Plot
+    df = pd.DataFrame.from_records([i.dict() for i in visits])
+    fig = px.histogram(
+        df,
+        x=df["called_at"].dt.to_period(interval.name).astype("datetime64[M]"),
+        color=categories,
+    )
+    return plotly_image_response(plotly_to_image(fig, format, template), format)
+
+
+def plotly_to_image(
+    fig, format: PlotlyImageFormats = PlotlyImageFormats.png, template: PlotlyTemplates = PlotlyTemplates.simple_white
+) -> str | bytes:
+    """Return a Plotly plot in the specified format."""
+    fig.update_layout(
+        Layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            hovermode="x",
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=False),
+            template=template,
+        )
+    )
+    if format == "html":
+        return fig.to_html()
+    if format == "json":
+        return fig.to_json()
+    elif format == "svg":
+        return fig.to_image(format="svg")
+    elif format == "pdf":
+        return fig.to_image(format="pdf")
+    elif format == "png":
+        return fig.to_image(format="png", scale=4)
+    else:
+        raise ValueError(f"Invalid format: {format}")
+
+
+def plotly_image_response(plot, format: PlotlyImageFormats = PlotlyImageFormats.png) -> Response | HTMLResponse:
+    """Wrap a Plotly figure with the appropriate FastAPI response type."""
+    if format == "html":
+        return HTMLResponse(plot)
+    if format == "json":
+        # Don't use JSONResponse as it excepts a dict, and we have a JSON string
+        return Response(content=plot, media_type="application/json")
+    elif format == "svg":
+        return Response(content=plot, media_type="image/svg+xml")
+    elif format == "pdf":
+        return Response(content=plot, media_type="application/pdf")
+    elif format == "png":
+        return Response(content=plot, media_type="image/png")
+    return Response(content=plot)

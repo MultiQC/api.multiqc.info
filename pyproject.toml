@@ -13,7 +13,6 @@ sections = [
     "THIRDPARTY",
     "FIRSTPARTY",
     "LOCALFOLDER",
-    "RICHCLICK",
 ]
 profile = "black"
 

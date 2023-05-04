@@ -13,6 +13,7 @@ services:
     # Don't pass the root password
     environment:
       DATABASE_URL: mysql+pymysql://$MYSQL_USER:$MYSQL_PASSWORD@db:3306/$MYSQL_DB
+      GITHUB_TOKEN: $GITHUB_TOKEN
     depends_on:
       wait-for-db:
         condition: service_completed_successfully
