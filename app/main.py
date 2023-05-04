@@ -120,7 +120,7 @@ async def usage_raw(
     interval: models.IntervalTypes = models.IntervalTypes.D,
     start: datetime.datetime | None = None,
     end: datetime.datetime | None = None,
-    limit: int = 100000,
+    limit: int | None = None,
     format: PlotlyImageFormats = PlotlyImageFormats.png,
     template: PlotlyTemplates = PlotlyTemplates.simple_white,
 ):
@@ -133,6 +133,7 @@ async def usage_raw(
         df,
         x=df["called_at"].dt.to_period(interval.name).astype("datetime64[M]"),
         color=categories,
+        title="MultiQC usage" + f" ({categories.value})" if categories else "",
     )
     return plotly_image_response(plotly_to_image(fig, format, template), format)
 

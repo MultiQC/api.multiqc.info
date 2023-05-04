@@ -27,4 +27,6 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: ghcr.io/multiqc/apimultiqcinfo:latest
+          tags: |
+            ghcr.io/multiqc/apimultiqcinfo:latest
+            ghcr.io/multiqc/apimultiqcinfo:${{ github.sha }}
