@@ -2,7 +2,7 @@ from fastapi import BackgroundTasks, FastAPI
 from fastapi.responses import PlainTextResponse
 from github import Github
 
-from . import db, models
+from . import __version__, db, models
 
 
 def get_latest_release() -> models.LatestRelease:
@@ -17,7 +17,15 @@ def get_latest_release() -> models.LatestRelease:
     )
 
 
-app = FastAPI()
+app = FastAPI(
+    title="MultiQC API",
+    description="MultiQC API service, providing run-time information about available updates.",
+    version=__version__,
+    license_info={
+        "name": "Source code available under the MIT Licence",
+        "url": "https://github.com/MultiQC/api.multiqc.info/blob/main/LICENSE",
+    },
+)
 
 
 @app.on_event("startup")

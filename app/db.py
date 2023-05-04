@@ -21,19 +21,19 @@ class Visit(SQLModel, table=True):  # type: ignore # mypy doesn't like this, not
     called_at: datetime | None = Field(default_factory=datetime.utcnow, nullable=False)
 
 
-def create_db_and_tables():
+def create_db_and_tables() -> None:
     """Create the database and tables if they don't exist."""
     SQLModel.metadata.create_all(engine)
 
 
-def add_visit(visit: Visit):
+def add_visit(visit: Visit) -> None:
     """Add a visit to the database."""
     with Session(engine) as session:
         session.add(visit)
         session.commit()
 
 
-def get_visits():
+def get_visits() -> list[Visit]:
     """Return list of raw visits from the DB."""
     visits = []
     with Session(engine) as session:
