@@ -127,18 +127,30 @@ async def usage_raw(
     """Plot usage metrics."""
     # Get visit data
     visits = db.get_visits(start=start, end=end, limit=limit)
-    # Plot
     df = pd.DataFrame.from_records([i.dict() for i in visits])
     df.fillna("Unknown", inplace=True)
-    title = "MultiQC usage"
-    if categories:
-        title += f" (by {models.usage_category_nicenames[categories]})"
+    legend_title_text = models.usage_category_nicenames[categories] if categories else None
+
+    # Simplify version numbers if requested
+    if categories in (models.UsageCategory.version_multiqc_simple, models.UsageCategory.version_python_simple):
+        if categories == models.UsageCategory.version_multiqc_simple:
+            categories = models.UsageCategory.version_multiqc
+        if categories == models.UsageCategory.version_python_simple:
+            categories = models.UsageCategory.version_python
+        df[categories.name] = df[categories.name].str.replace(
+            r"(?P<major>\d+)\.(?P<minor>\d+).+",
+            lambda m: f"{m.group('major')}.{m.group('minor')}",
+            regex=True,
+        )
+
+    # Plot
     fig = px.histogram(
         df,
         x=df["called_at"].dt.to_period(interval.name).astype("datetime64[M]"),
         color=categories,
-        title=title,
+        title="MultiQC usage",
     )
+    fig.update_layout(legend_title_text=legend_title_text)
     return plotly_image_response(plotly_to_image(fig, format, template), format)
 
 

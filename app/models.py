@@ -58,7 +58,9 @@ class UsageCategory(str, Enum):
     """How to categorise the usage data."""
 
     version_multiqc = "version_multiqc"
+    version_multiqc_simple = "version_multiqc_simple"
     version_python = "version_python"
+    version_python_simple = "version_python_simple"
     operating_system = "operating_system"
     installation_method = "installation_method"
     ci_environment = "ci_environment"
@@ -66,7 +68,9 @@ class UsageCategory(str, Enum):
 
 usage_category_nicenames = dict(
     version_multiqc="MultiQC version",
+    version_multiqc_simple="MultiQC version (simple)",
     version_python="Python version",
+    version_python_simple="Python version (simple)",
     operating_system="Operating system",
     installation_method="Installation method",
     ci_environment="CI environment",
