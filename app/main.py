@@ -1,5 +1,4 @@
 import datetime
-import math
 from enum import Enum
 from os import getenv
 
@@ -138,41 +137,15 @@ async def usage_raw(
         df[categories.name] = df[categories.name].str.replace(r"^v?(\d+\.\d+).+", lambda m: m.group(1), regex=True)
 
     # Plot
-    data = df["called_at"].dt.to_period(interval.name).astype("datetime64[M]")
-    nbins = calculate_nbins(df["called_at"].min(), df["called_at"].max(), interval, data.nunique())
     fig = px.histogram(
         df,
-        x=data,
+        x=df["called_at"].dt.to_period(interval.name).astype("datetime64[M]"),
         color=categories,
         title="MultiQC usage",
-        nbins=nbins,
     )
+    fig.update_traces(xbins_size=models.interval_types_plotly[interval])
     fig.update_layout(legend_title_text=legend_title_text)
     return plotly_image_response(plotly_to_image(fig, format, template), format)
-
-
-def calculate_nbins(
-    mindate: datetime.datetime,
-    maxdate: datetime.datetime,
-    interval: models.IntervalTypes,
-    num_unique: int,
-):
-    """Calculate number of bins for the histogram."""
-    date_range = maxdate - mindate
-    nbins = float(date_range.days)
-    if interval == models.IntervalTypes.S:
-        nbins = date_range.total_seconds()
-    if interval == models.IntervalTypes.T:
-        nbins = date_range.total_seconds() / 60
-    if interval == models.IntervalTypes.H:
-        nbins = date_range.total_seconds() / 3600
-    if interval == models.IntervalTypes.W:
-        nbins = date_range.days / 7
-    if interval == models.IntervalTypes.M:
-        nbins = math.ceil(date_range.days / 30)
-    if interval == models.IntervalTypes.Y:
-        nbins = math.ceil(date_range.days / 365)
-    return int(max(nbins, num_unique))
 
 
 def plotly_to_image(

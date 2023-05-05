@@ -47,6 +47,17 @@ class IntervalTypes(str, Enum):
     Y = "year"
 
 
+interval_types_plotly = {
+    "second": "S1",
+    "minute": "T1",
+    "hour": "H1",
+    "day": "D1",
+    "week": "W1",
+    "month": "M1",
+    "year": "Y1",
+}
+
+
 class SortTypes(str, Enum):
     """Allowed sort types for the usage endpoint."""
 
