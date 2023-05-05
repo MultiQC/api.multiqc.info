@@ -133,15 +133,8 @@ async def usage_raw(
 
     # Simplify version numbers if requested
     if categories in (models.UsageCategory.version_multiqc_simple, models.UsageCategory.version_python_simple):
-        if categories == models.UsageCategory.version_multiqc_simple:
-            categories = models.UsageCategory.version_multiqc
-        if categories == models.UsageCategory.version_python_simple:
-            categories = models.UsageCategory.version_python
-        df[categories.name] = df[categories.name].str.replace(
-            r"(?P<major>\d+)\.(?P<minor>\d+).+",
-            lambda m: f"{m.group('major')}.{m.group('minor')}",
-            regex=True,
-        )
+        categories = models.UsageCategory[categories.name.replace("_simple", "")]
+        df[categories.name] = df[categories.name].str.replace(r"^v?(\d+\.\d+).+", lambda m: m.group(1), regex=True)
 
     # Plot
     fig = px.histogram(
