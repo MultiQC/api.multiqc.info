@@ -62,3 +62,12 @@ class UsageCategory(str, Enum):
     operating_system = "operating_system"
     installation_method = "installation_method"
     ci_environment = "ci_environment"
+
+
+usage_category_nicenames = dict(
+    version_multiqc="MultiQC version",
+    version_python="Python version",
+    operating_system="Operating system",
+    installation_method="Installation method",
+    ci_environment="CI environment",
+)

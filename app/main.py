@@ -129,11 +129,15 @@ async def usage_raw(
     visits = db.get_visits(start=start, end=end, limit=limit)
     # Plot
     df = pd.DataFrame.from_records([i.dict() for i in visits])
+    df.fillna("Unknown", inplace=True)
+    title = "MultiQC usage"
+    if categories:
+        title += f" (by {models.usage_category_nicenames[categories]})"
     fig = px.histogram(
         df,
         x=df["called_at"].dt.to_period(interval.name).astype("datetime64[M]"),
         color=categories,
-        title="MultiQC usage" + f" ({categories.value})" if categories else "",
+        title=title,
     )
     return plotly_image_response(plotly_to_image(fig, format, template), format)
 
