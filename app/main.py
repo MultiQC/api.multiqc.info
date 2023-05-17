@@ -114,6 +114,12 @@ class PlotlyTemplates(str, Enum):
     none = "none"
 
 
+@app.get("/update_daily_counts")
+async def update_daily_counts():
+    """Update the daily counts table."""
+    return db.update_daily_counts()
+
+
 @app.get("/plot_usage")
 async def usage_raw(
     categories: models.UsageCategory | None = None,

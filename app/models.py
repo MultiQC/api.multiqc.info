@@ -65,6 +65,16 @@ class SortTypes(str, Enum):
     date_desc = "date_desc"
 
 
+class StatTypes(str, Enum):
+    """How to categorise the usage data."""
+
+    version_multiqc = "version_multiqc"
+    version_python = "version_python"
+    operating_system = "operating_system"
+    installation_method = "installation_method"
+    ci_environment = "ci_environment"
+
+
 class UsageCategory(str, Enum):
     """How to categorise the usage data."""
 

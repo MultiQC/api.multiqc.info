@@ -23,6 +23,7 @@ services:
     restart: always
     volumes:
       - ./.mysql-data/db:/var/lib/mysql
+      - .:/code
     ports:
       - 3306:3306
     # Set in .env
