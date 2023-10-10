@@ -53,3 +53,4 @@ repos:
         require_serial: true
         additional_dependencies:
           - mypy
+          - types-requests

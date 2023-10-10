@@ -10,6 +10,7 @@ from github import Github
 from plotly.graph_objs import Layout
 
 from . import __version__, db, models
+from .downloads import download_stats
 
 
 def get_latest_release() -> models.LatestRelease:
@@ -55,6 +56,15 @@ async def index(background_tasks: BackgroundTasks):
             {"path": route.path, "name": route.name} for route in app.routes if route.name != "swagger_ui_redirect"
         ],
     }
+
+
+@app.get("/downloads")
+async def downloads():
+    """
+    MultiQC package downloads across difference sources, and when available,
+    different versions.
+    """
+    return download_stats()
 
 
 @app.get("/version")
