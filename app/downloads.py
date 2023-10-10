@@ -16,23 +16,25 @@ import requests
 
 logging.basicConfig(level=logging.INFO)
 
+PayloadType = dict[str, int | None | dict[str, int]]
 
-def download_stats() -> str:
+
+def download_stats() -> PayloadType:
     """
     Fetch the MultiQC package download numbers from various sources and return them
     as a JSON string.
     """
-    stats: dict[str, int | None | dict[str, int]] = {}
+    stats: PayloadType = dict()
     stats |= pypi_stats()
     stats |= bioconda_stats()
     stats |= github_clones_stats()
     stats |= github_releases_stats()
     stats |= dockerhub_stats()
     stats |= biocontainers_stats()
-    return json.dumps(stats, indent=2, sort_keys=True)
+    return stats
 
 
-def pypi_stats() -> dict[str, int | None | dict[str, int]]:
+def pypi_stats() -> PayloadType:
     """
     Download count from [PyPI](https://pypi.org/project/multiqc), also split by version.
     """
@@ -59,7 +61,7 @@ def pypi_stats() -> dict[str, int | None | dict[str, int]]:
     }
 
 
-def bioconda_stats() -> dict[str, int | None | dict[str, int]]:
+def bioconda_stats() -> PayloadType:
     """
     Download count from [BioConda](https://bioconda.github.io/recipes/multiqc),
     also split by version.
@@ -104,7 +106,7 @@ def github_clones_stats() -> dict[str, int | None]:
     return {"github_clones": clone_count}
 
 
-def github_releases_stats() -> dict[str, int | None | dict[str, int]]:
+def github_releases_stats() -> PayloadType:
     """
     Number of [GitHub releases](https://github.com/ewels/MultiQC/releases). Currently
     not working properly, returning information about ancient releases only.
@@ -191,4 +193,6 @@ def biocontainers_stats() -> dict[str, int | None]:
 
 
 if __name__ == "__main__":
-    print(download_stats())
+    d = download_stats()
+    # Print as a properly formatted JSON
+    print(json.dumps(d, indent=2, sort_keys=True))
