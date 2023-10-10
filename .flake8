@@ -1,5 +1,5 @@
 [flake8]
 # Default ignores that we can extend
-ignore=D100,D102,D205,E203,E231,E731,W504,I001,W503
+ignore=D100,D102,D205,E203,E231,E731,W504,I001,W503,D200,F541,D400,D401,D403
 max-line-length=120
 exclude = .git,__pycache__,.venv,build,sdist,tests/**,examples/**

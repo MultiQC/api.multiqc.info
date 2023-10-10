@@ -5,9 +5,9 @@ Code for [api.multiqc.info](https://api.multiqc.info), providing run-time inform
 ## Introduction
 
 The API is a simple tool to provide a metadata endpoint for MultiQC runs.
-There is currently a single endpoint that is used - `/version`.
+Currently, there are the following endpoints that are used:
 
-The `/version` endpoint returns:
+### `/version`
 
 - Information about the latest available release
   - MultiQC uses this to print a log message advising if the current version is out of date, with information about how to upgrade.
@@ -17,6 +17,15 @@ The `/version` endpoint returns:
 - _[Planned]_: Module-specific warnings
   - Warnings scoped to module and MultiQC version
   - Will allow MultiQC to notify end users via the log if the module that they are running has serious bugs or errors.
+
+### `/downloads`
+
+- MultiQC package downloads across multiple sources, and, when available, different versions:
+  - [PyPI](https://pypi.org/project/multiqc) (additionally, split by version)
+  - [BioConda](https://bioconda.github.io/recipes/multiqc) (additionally, split by version)
+  - [DockerHub](https://hub.docker.com/r/ewels/multiqc)
+  - [GitHub clones](https://github.com/ewels/MultiQC/graphs/traffic)
+  - [BioContainers (AWS mirror)](https://api.us-east-1.gallery.ecr.aws/getRepositoryCatalogData)
 
 ## Logged metrics
 
