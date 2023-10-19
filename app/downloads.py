@@ -69,18 +69,17 @@ def bioconda_stats() -> PayloadType:
     url = "https://raw.githubusercontent.com/bioconda/bioconda-plots/main/plots/multiqc/versions.json"
     # [{"date":"2023-09-05","total":15949,"delta":18,"version":"1.10.1"}, ...
 
-    downloads_by_version: dict[str, int] = dict()
+    downloads_counter: Counter[str] = Counter()
 
     response = requests.get(url)
     if response.status_code == 200:
         data = json.loads(response.text)
-        downloads_by_version = Counter()
         for version in data:
-            downloads_by_version[version["version"]] = version["total"]
+            downloads_counter[version["version"]] += version["total"]
     else:
         logging.error("Failed to fetch data from bioconda")
 
-    downloads_by_version = {str(packaging.version.parse(k)): v for k, v in downloads_by_version.items()}
+    downloads_by_version: dict[str, int] = {str(packaging.version.parse(k)): v for k, v in downloads_counter.items()}
     return {
         "bioconda": sum(downloads_by_version.values()),
         "bioconda_by_version": downloads_by_version,
