@@ -27,6 +27,10 @@ import pandas as pd
 import pypistats
 import requests
 from github import Github
+from dotenv import load_dotenv
+
+# Load environment variables from the .env file
+load_dotenv()
 
 
 logging.basicConfig(level=logging.INFO)
@@ -36,18 +40,22 @@ cache_path = Path(__file__).parent / "cache"
 
 
 @click.command()
-@click.option("--db-url", help="Database URL to populate the historical data.")
+@click.option("--db", is_flag=True, help="Populate $DATABASE_URL in addition to the CSV.")
 @click.option("--days", help="Only collect data for the past n days.")
-def main(db_url: str | None = None, days: int | None = None):
+def main(db: bool = False, days: int | None = None):
     """
     Combine all the data sources into a single CSV file, with both new and daily stats for each day.
     """
     df = collect_daily_download_stats(days=days)
-    if db_url:
+    if db:
+        db_url = os.environ.get("DATABASE_URL")
         if days is None:
             # Initiating the database with historical data, making sure we are not overriding th entire database:
             try:
-                df.to_sql("downloads", db_url, if_exists="fail")
+                # Add a new date column separate from index in order to ensure the db uses Date type
+                df["date"] = pd.to_datetime(df.index)
+                df = df[["date"] + [c for c in df.columns if c != "date"]]  # place date first
+                df.to_sql("downloads", db_url, if_exists="fail", index=False, index_label="date")
             except ValueError as e:
                 logging.error(
                     f"Failed to save historical data to {db_url}, the table might already exist? "
@@ -115,6 +123,7 @@ def collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
 
     for k in keys:
         df[k] = df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else np.nan)
+        df[k] = df[k].astype("Int64")  # Int64 is a nullable integer version of int64
 
     df.to_csv(out_path, index=True)
     print(f"Saved daily downloads stats to {out_path}")
