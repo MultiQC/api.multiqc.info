@@ -12,8 +12,9 @@ engine = create_engine(sql_url)
 
 class Visits(SQLModel, table=True):  # type: ignore # mypy doesn't like this, not sure why
     """
-    Table to record per-minute visit summaries. Start is a primary key,
-    and start and end are both indexed.
+    Table to record per-minute visit summaries.
+    
+    Start is a primary key, and start and end are both indexed.
     """
 
     start: datetime.datetime = Field(primary_key=True)
