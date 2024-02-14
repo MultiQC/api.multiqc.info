@@ -1,15 +1,38 @@
+import csv
 import datetime
+import logging
+import os
+import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
+from threading import Lock
+
+import uvicorn
 from enum import Enum
 from os import getenv
 
 import pandas as pd
 import plotly.express as px
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi_utilities import repeat_every
 from github import Github
 from plotly.graph_objs import Layout
+from sqlalchemy.exc import IntegrityError
 
-from . import __version__, db, models
+from app import __version__, db, models
+from app.db import engine
+
+
+app = FastAPI(
+    title="MultiQC API",
+    description="MultiQC API service, providing run-time information about available updates.",
+    version=__version__,
+    license_info={
+        "name": "Source code available under the MIT Licence",
+        "url": "https://github.com/MultiQC/api.multiqc.info/blob/main/LICENSE",
+    },
+)
 
 
 def get_latest_release() -> models.LatestRelease:
@@ -24,22 +47,167 @@ def get_latest_release() -> models.LatestRelease:
     )
 
 
-app = FastAPI(
-    title="MultiQC API",
-    description="MultiQC API service, providing run-time information about available updates.",
-    version=__version__,
-    license_info={
-        "name": "Source code available under the MIT Licence",
-        "url": "https://github.com/MultiQC/api.multiqc.info/blob/main/LICENSE",
-    },
-)
+app.latest_release = get_latest_release()
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+# Make sure logs are printed to stdout:
+logger.addHandler(logging.StreamHandler(sys.stdout))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialise the DB and tables on server startup
+    db.create_db_and_tables()
+    # Sync latest version tag using GitHub API
+    app.latest_release = get_latest_release()
+    yield
 
 
 @app.on_event("startup")
-def on_startup():
-    """Initialise the DB and tables on server startup."""
-    db.create_db_and_tables()
+@repeat_every(seconds=15 * 60)  # every 15 minutes
+def update_version():
+    """Sync latest version tag using GitHub API"""
     app.latest_release = get_latest_release()
+
+
+# Fields to store per visit
+fieldnames = [
+    "version_multiqc",
+    "version_python",
+    "operating_system",
+    "installation_method",
+    "ci_environment",
+]
+
+# Thread-safe in-memory buffer to accumulate recent visits before writing to the CSV file
+visit_buffer = []
+visit_buffer_lock = Lock()
+
+
+@app.get("/version")  # log a visit
+async def version(
+    version_multiqc: str | None = None,
+    version_python: str | None = None,
+    operating_system: str | None = None,
+    installation_method: str | None = None,
+    ci_environment: str | None = None,
+):
+    """
+    Endpoint for MultiQC that returns the latest release, and logs
+    the visit along with basic user environment detail.
+    """
+    with visit_buffer_lock:
+        visit_buffer.append(
+            {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "version_multiqc": version_multiqc,
+                "version_python": version_python,
+                "operating_system": operating_system,
+                "installation_method": installation_method,
+                "ci_environment": ci_environment,
+            }
+        )
+    return models.VersionResponse(latest_release=app.latest_release)
+
+
+# Path to a buffer CSV file to persist recent visits before dumping to the database
+# In the same folder as this script
+CSV_FILE_PATH = Path(__file__).parent / "visits.csv"
+
+
+@app.on_event("startup")
+@repeat_every(seconds=10)  # every 10 seconds
+async def persist_visits():
+    """Write in-memory visits to a CSV file"""
+    global visit_buffer
+    with visit_buffer_lock:
+        if visit_buffer:
+            logger.debug(f"Persisting {len(visit_buffer)} visits to CSV {CSV_FILE_PATH}")
+            with open(CSV_FILE_PATH, mode="a") as file:
+                writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + fieldnames)
+                writer.writerows(visit_buffer)
+            visit_buffer = []
+
+
+@app.on_event("startup")
+@repeat_every(seconds=60 * 60 * 1)  # every hour
+async def summarize_visits():
+    with visit_buffer_lock:
+        df = pd.read_csv(CSV_FILE_PATH, sep=",", names=["timestamp"] + fieldnames)
+        df["start"] = pd.to_datetime(df["timestamp"])
+        df["end"] = df["start"] + pd.to_timedelta("1min")
+        df["start"] = df["start"].dt.strftime("%Y-%m-%d %H:%M")
+        df["end"] = df["end"].dt.strftime("%Y-%m-%d %H:%M")
+        df = df.drop(columns=["timestamp"])
+        df = df.fillna("Unknown")  # df.groupby will fail if there are NaNs
+        # Summarize visits per user per minute
+        minute_summary = df.groupby(["start", "end"] + fieldnames).size().reset_index(name="count")
+        logger.debug(
+            f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(minute_summary)} rows to the DB"
+        )
+        try:
+            minute_summary.to_sql("visits", con=engine, if_exists="append", index=False)
+        except IntegrityError as e:
+            logger.error(
+                f"Failed to write to the database due to a primary key violation, "
+                f"probably these entries were already added: {e}"
+            )
+            # Cleaning the file to avoid duplicates
+            open(CSV_FILE_PATH, "w").close()
+        except Exception as e:
+            logger.error(f"Failed to write to the database: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+        else:
+            logger.debug(f"Successfully wrote {len(minute_summary)} rows to the DB")
+            # Clear the CSV file on successful write
+            open(CSV_FILE_PATH, "w").close()
+        return Response(status_code=200)
+
+
+# Add a /summarize endpoint to trigger the summarize logic manually available only when developing
+if os.getenv("ENVIRONMENT") == "DEV":
+
+    @app.get("/summarize")
+    async def summarize_visits_endpoint():
+        try:
+            # Call the summarize logic here if possible or replicate the logic
+            await summarize_visits()
+            return Response(status_code=200)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.on_event("startup")
+@repeat_every(seconds=60 * 60 * 1)  # daily
+@app.get("/downloads")
+async def downloads():
+    """
+    MultiQC package downloads across difference sources, and when available,
+    different versions.
+
+    Fetch from the database which will be populated by the script in the
+    https://github.com/MultiQC/usage repo, run on a chron job.
+    """
+    return {}
+
+
+@app.get("/version.php", response_class=PlainTextResponse)
+async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None):
+    """
+    Legacy endpoint that mimics response from the old PHP script.
+
+    Accessed by MultiQC versions 1.14 and earlier,
+    after being redirected to by https://multiqc.info/version.php
+    """
+    with visit_buffer_lock:
+        visit_buffer.append(
+            {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "version_multiqc": v,
+            }
+        )
+    return app.latest_release.version
 
 
 @app.get("/")
@@ -55,53 +223,6 @@ async def index(background_tasks: BackgroundTasks):
             {"path": route.path, "name": route.name} for route in app.routes if route.name != "swagger_ui_redirect"
         ],
     }
-
-
-@app.get("/downloads")
-async def downloads():
-    """
-    MultiQC package downloads across difference sources, and when available,
-    different versions.
-
-    Fetch from the database which will be populated by the script in the
-    https://github.com/MultiQC/usage repo, run on a chron job.
-    """
-    return {}
-
-
-@app.get("/version")
-async def version(
-    background_tasks: BackgroundTasks,
-    version_multiqc: str | None = None,
-    version_python: str | None = None,
-    operating_system: str | None = None,
-    installation_method: str | None = None,
-    ci_environment: str | None = None,
-):
-    """Endpoint for MultiQC that returns the latest release, plus bonus info."""
-    background_tasks.add_task(
-        db.add_visit,
-        db.Visit(
-            version_multiqc=version_multiqc,
-            version_python=version_python,
-            operating_system=operating_system,
-            installation_method=installation_method,
-            ci_environment=ci_environment,
-        ),
-    )
-    return models.VersionResponse(latest_release=app.latest_release)
-
-
-@app.get("/version.php", response_class=PlainTextResponse)
-async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None):
-    """
-    Legacy endpoint that mimics response from the old PHP script.
-
-    Accessed by MultiQC versions 1.14 and earlier,
-    after being redirected to by https://multiqc.info/version.php
-    """
-    background_tasks.add_task(db.add_visit, db.Visit(version_multiqc=v))
-    return app.latest_release.version
 
 
 class PlotlyImageFormats(str, Enum):
@@ -127,7 +248,7 @@ class PlotlyTemplates(str, Enum):
 
 
 @app.get("/plot_usage")
-async def usage_raw(
+async def plot_usage(
     categories: models.UsageCategory | None = None,
     interval: models.IntervalTypes = models.IntervalTypes.D,
     start: datetime.datetime | None = None,
@@ -139,6 +260,8 @@ async def usage_raw(
     """Plot usage metrics."""
     # Get visit data
     visits = db.get_visits(start=start, end=end, limit=limit)
+    if not visits:
+        return Response(status_code=204)
     df = pd.DataFrame.from_records([i.dict() for i in visits])
     df.fillna("Unknown", inplace=True)
     legend_title_text = models.usage_category_nicenames[categories] if categories else None
@@ -148,15 +271,17 @@ async def usage_raw(
         categories = models.UsageCategory[categories.name.replace("_simple", "")]
         df[categories.name] = df[categories.name].str.replace(r"^v?(\d+\.\d+).+", lambda m: m.group(1), regex=True)
 
-    # Plot
+    # Plot histogram of df.count per interval from df.start
     fig = px.histogram(
         df,
-        x=df["called_at"].dt.to_period(interval.name).astype("datetime64[M]"),
-        color=categories,
-        title="MultiQC usage",
+        x="start",
+        y="count",
+        color=categories.name if categories else None,
+        title="Usage per version per week",
     )
-    fig.update_traces(xbins_size=models.interval_types_plotly[interval])
-    fig.update_layout(legend_title_text=legend_title_text)
+    fig.update_layout(
+        legend_title_text=legend_title_text,
+    )
     return plotly_image_response(plotly_to_image(fig, format, template), format)
 
 
@@ -202,3 +327,7 @@ def plotly_image_response(plot, format: PlotlyImageFormats = PlotlyImageFormats.
     elif format == "png":
         return Response(content=plot, media_type="image/png")
     return Response(content=plot)
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
