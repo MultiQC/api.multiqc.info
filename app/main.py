@@ -165,6 +165,7 @@ async def summarize_visits():
         return Response(status_code=200)
 
 
+# Add a /summarize endpoint to trigger the summarize logic manually available only when developing
 if os.getenv("ENVIRONMENT") == "DEV":
 
     @app.get("/summarize")
@@ -177,21 +178,8 @@ if os.getenv("ENVIRONMENT") == "DEV":
             raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/")
-async def index(background_tasks: BackgroundTasks):
-    """
-    Root endpoint for the API.
-
-    Returns a list of available endpoints.
-    """
-    return {
-        "message": "Welcome to the MultiQC service API",
-        "available_endpoints": [
-            {"path": route.path, "name": route.name} for route in app.routes if route.name != "swagger_ui_redirect"
-        ],
-    }
-
-
+@app.on_event("startup")
+@repeat_every(seconds=60 * 60 * 1)  # daily
 @app.get("/downloads")
 async def downloads():
     """
@@ -220,6 +208,21 @@ async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None
             }
         )
     return app.latest_release.version
+
+
+@app.get("/")
+async def index(background_tasks: BackgroundTasks):
+    """
+    Root endpoint for the API.
+
+    Returns a list of available endpoints.
+    """
+    return {
+        "message": "Welcome to the MultiQC service API",
+        "available_endpoints": [
+            {"path": route.path, "name": route.name} for route in app.routes if route.name != "swagger_ui_redirect"
+        ],
+    }
 
 
 class PlotlyImageFormats(str, Enum):
