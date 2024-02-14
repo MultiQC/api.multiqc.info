@@ -10,7 +10,6 @@ from github import Github
 from plotly.graph_objs import Layout
 
 from . import __version__, db, models
-from .downloads import download_stats
 
 
 def get_latest_release() -> models.LatestRelease:
@@ -63,8 +62,11 @@ async def downloads():
     """
     MultiQC package downloads across difference sources, and when available,
     different versions.
+
+    Fetch from the database which will be populated by the script in the
+    https://github.com/MultiQC/usage repo, run on a chron job.
     """
-    return download_stats()
+    return {}
 
 
 @app.get("/version")
