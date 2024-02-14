@@ -12,30 +12,23 @@ engine = create_engine(sql_url)
 
 class Visits(SQLModel, table=True):  # type: ignore # mypy doesn't like this, not sure why
     """
-    Table to record per-minute visit summaries
+    Table to record per-minute visit summaries. Start is a primary key,
+    and start and end are both indexed.
     """
 
-    id: int | None = Field(default=None, primary_key=True)
-    start: datetime.datetime | None = None
-    end: datetime.datetime | None = None
-    count: int = 0
-    version_multiqc: str | None = None
-    version_python: str | None = None
-    operating_system: str | None = None
-    installation_method: str | None = None
-    ci_environment: str | None = None
+    start: datetime.datetime = Field(primary_key=True)
+    end: datetime.datetime = Field(primary_key=True)
+    count: int
+    version_multiqc: str = Field(index=True)
+    version_python: str = Field(default=None, index=True)
+    operating_system: str = Field(default=None, index=True)
+    installation_method: str = Field(default=None, index=True)
+    ci_environment: str = Field(default=None, index=True)
 
 
 def create_db_and_tables() -> None:
     """Create the database and tables if they don't exist."""
     SQLModel.metadata.create_all(engine)
-
-
-# def add_visit(visit: Visits) -> None:
-#     """Add a visit to the database."""
-#     with Session(engine) as session:
-#         session.add(visit)
-#         session.commit()
 
 
 def get_visits(

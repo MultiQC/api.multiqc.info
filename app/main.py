@@ -1,6 +1,7 @@
 import csv
 import datetime
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,11 +13,12 @@ from os import getenv
 
 import pandas as pd
 import plotly.express as px
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi_utilities import repeat_every
 from github import Github
 from plotly.graph_objs import Layout
+from sqlalchemy.exc import IntegrityError
 
 from app import __version__, db, models
 from app.db import engine
@@ -49,6 +51,7 @@ app.latest_release = get_latest_release()
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+# Make sure logs are printed to stdout:
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
@@ -61,6 +64,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
+@app.on_event("startup")
 @repeat_every(seconds=15 * 60)  # every 15 minutes
 def update_version():
     """Sync latest version tag using GitHub API"""
@@ -77,8 +81,8 @@ fieldnames = [
 ]
 
 # Thread-safe in-memory buffer to accumulate recent visits before writing to the CSV file
-visit_data = []
-visit_data_lock = Lock()
+visit_buffer = []
+visit_buffer_lock = Lock()
 
 
 @app.get("/version")  # log a visit
@@ -93,8 +97,8 @@ async def version(
     Endpoint for MultiQC that returns the latest release, and logs
     the visit along with basic user environment detail.
     """
-    with visit_data_lock:
-        visit_data.append(
+    with visit_buffer_lock:
+        visit_buffer.append(
             {
                 "timestamp": datetime.datetime.now().isoformat(),
                 "version_multiqc": version_multiqc,
@@ -112,35 +116,65 @@ async def version(
 CSV_FILE_PATH = Path(__file__).parent / "visits.csv"
 
 
+@app.on_event("startup")
 @repeat_every(seconds=10)  # every 10 seconds
 async def persist_visits():
     """Write in-memory visits to a CSV file"""
-    global visit_data
-    with visit_data_lock:
-        if visit_data:
-            logger.debug(f"Persisting {len(visit_data)} visits to CSV {CSV_FILE_PATH}")
+    global visit_buffer
+    with visit_buffer_lock:
+        if visit_buffer:
+            logger.debug(f"Persisting {len(visit_buffer)} visits to CSV {CSV_FILE_PATH}")
             with open(CSV_FILE_PATH, mode="a") as file:
-                writer = csv.DictWriter(file, fieldnames=["timestamp"] + fieldnames)
-                for row in visit_data:
-                    writer.writerow(row)
-            visit_data = []
+                writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + fieldnames)
+                writer.writerows(visit_buffer)
+            visit_buffer = []
 
 
+@app.on_event("startup")
 @repeat_every(seconds=60 * 60 * 1)  # every hour
 async def summarize_visits():
-    with visit_data_lock:
+    with visit_buffer_lock:
         df = pd.read_csv(CSV_FILE_PATH, sep=",", names=["timestamp"] + fieldnames)
         df["start"] = pd.to_datetime(df["timestamp"])
         df["end"] = df["start"] + pd.to_timedelta("1min")
         df["start"] = df["start"].dt.strftime("%Y-%m-%d %H:%M")
         df["end"] = df["end"].dt.strftime("%Y-%m-%d %H:%M")
         df = df.drop(columns=["timestamp"])
-        # replace nan with "Unknown"
         df = df.fillna("Unknown")  # df.groupby will fail if there are NaNs
         # Summarize visits per user per minute
         minute_summary = df.groupby(["start", "end"] + fieldnames).size().reset_index(name="count")
-        logger.debug(f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(minute_summary)} rows to DB")
-        minute_summary.to_sql("visits", con=engine, if_exists="append", index=False)
+        logger.debug(
+            f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(minute_summary)} rows to the DB"
+        )
+        try:
+            minute_summary.to_sql("visits", con=engine, if_exists="append", index=False)
+        except IntegrityError as e:
+            logger.error(
+                f"Failed to write to the database due to a primary key violation, "
+                f"probably these entries were already added: {e}"
+            )
+            # Cleaning the file to avoid duplicates
+            open(CSV_FILE_PATH, "w").close()
+        except Exception as e:
+            logger.error(f"Failed to write to the database: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+        else:
+            logger.debug(f"Successfully wrote {len(minute_summary)} rows to the DB")
+            # Clear the CSV file on successful write
+            open(CSV_FILE_PATH, "w").close()
+        return Response(status_code=200)
+
+
+if os.getenv("ENVIRONMENT") == "DEV":
+
+    @app.get("/summarize")
+    async def summarize_visits_endpoint():
+        try:
+            # Call the summarize logic here if possible or replicate the logic
+            await summarize_visits()
+            return Response(status_code=200)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/")
@@ -178,8 +212,8 @@ async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None
     Accessed by MultiQC versions 1.14 and earlier,
     after being redirected to by https://multiqc.info/version.php
     """
-    with visit_data_lock:
-        visit_data.append(
+    with visit_buffer_lock:
+        visit_buffer.append(
             {
                 "timestamp": datetime.datetime.now().isoformat(),
                 "version_multiqc": v,
