@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi_utilities import repeat_every
 from github import Github
 from plotly.graph_objs import Layout
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from app import __version__, db, models
 from app.db import engine
@@ -182,8 +182,14 @@ async def update_downloads():
     Update the daily download statistics in the database.
     """
     try:
-        if not db.get_downloads():  # first time, populate historical data
+        existing_downloads = db.get_downloads()
+    except ProgrammingError:
+        logger.error("The downloads table does not exist, will create and populate with historical data")
+        existing_downloads = []
+    try:
+        if len(existing_downloads) == 0:  # first time, populate historical data
             df = daily.collect_daily_download_stats(
+                populate_db=True,
                 db_con=engine,
                 db_table="downloads",
             )
@@ -193,6 +199,7 @@ async def update_downloads():
             )
         else:  # recent 2 days
             daily.collect_daily_download_stats(
+                populate_db=True,
                 db_con=engine,
                 db_table="downloads",
                 days=2,

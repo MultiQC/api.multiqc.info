@@ -26,8 +26,10 @@ import packaging.version
 import pandas as pd
 import pypistats
 import requests
+import sqlalchemy
 from github import Github
 from dotenv import load_dotenv
+from sqlalchemy import create_engine
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -51,7 +53,7 @@ def main(populate_db: bool = False, days: int | None = None):
 
 def collect_daily_download_stats(
     populate_db: bool = False,
-    db_con=None,
+    db_con: sqlalchemy.Engine | None = None,
     db_table="downloads",
     days: int | None = None,
 ) -> pd.DataFrame:
@@ -59,10 +61,12 @@ def collect_daily_download_stats(
     if not populate_db:
         return df
 
-    db_con = db_con or os.environ.get("DATABASE_URL")
     if db_con is None:
-        logging.error("No DATABASE_URL environment variable found, skipping database writing")
-        return df
+        if url := os.environ.get("DATABASE_URL"):
+            db_con = create_engine(url)
+        else:
+            logging.error("No DATABASE_URL environment variable found, skipping database writing")
+            return df
 
     df["date"] = pd.to_datetime(df.index)  # adding a separate field date with a type datetime
     df = df[["date"] + [c for c in df.columns if c != "date"]]  # place date first
@@ -75,23 +79,44 @@ def collect_daily_download_stats(
             df.to_sql(db_table, db_con, if_exists="fail", index=False, index_label="date")
         except ValueError as e:
             logging.error(
-                f"Failed to save historical data to table {db_table}, the table might already exist? "
+                f"Failed to save historical data to table '{db_table}', the table might already exist? "
                 f"Clean manually if you want to replace the historical data: {e}"
             )
             raise
         except Exception as e:
-            logging.error(f"Failed to write historical downloads stats to table {db_table}: {e}")
+            logging.error(f"Failed to write historical downloads stats to table '{db_table}': {e}")
             raise
-        else:
-            print(f"Wrote historical downloads stats to table {db_table}")
+        # Adding date as a primary key. Not wrapping in try-except here because if the DB was
+        # populated without problems but failed creating a primary key, something is wrong here
+        # and needs to vbe cleaned up manually.
+        with db_con.connect() as c:
+            cursor = c.connection.cursor()
+            cursor.execute(f"ALTER TABLE {db_table} ADD PRIMARY KEY (date);")
+        print(f"Wrote historical downloads stats to table '{db_table}'")
     else:
-        try:
-            df.to_sql(db_table, db_con, if_exists="replace", index=False, index_label="date")
-        except Exception as e:
-            logging.error(f"Failed to append the downloads stats for last {days} days to table {db_table}: {e}")
-            raise
-        else:
-            print(f"Appended downloads stats for last {days} days to table {db_table}")
+        logging.debug(
+            f"Adding recent {len(df)} entries to the '{db_table}' table one by one, updating if"
+            f"an entry at this date already exists"
+        )
+        with db_con.connect() as con:
+            cursor = con.connection.cursor()
+            for index, row in df.iterrows():
+                date = row["date"].strftime("%Y-%m-%d")
+                values = ", ".join([f"'{date}'"] + [str(x) if not pd.isna(x) else "NULL" for x in row[1:]])
+                query = f"""
+    INSERT INTO {db_table} ({", ".join(df.columns)}) VALUES ({values})
+    ON DUPLICATE KEY UPDATE 
+    {',\n'.join([f'{col} = VALUES({col})' for col in df.columns if col != 'date'])};
+                """
+                try:
+                    cursor.execute(query)
+                except Exception as e:
+                    logging.error(f"Failed to execute query: {query}: {e}")
+                    cursor.close()
+                    raise
+            con.commit()
+            cursor.close()
+        logging.debug(f"Updated last {days} days to in daily downloads table '{db_table}'")
     return df
 
 
