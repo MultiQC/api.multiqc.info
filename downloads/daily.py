@@ -35,46 +35,67 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
-out_path = Path(__file__).parent / "historical.csv"
+out_path = Path(__file__).parent / "daily.csv"
 cache_path = Path(__file__).parent / "cache"
 
 
 @click.command()
-@click.option("--db", is_flag=True, help="Populate $DATABASE_URL in addition to the CSV.")
+@click.option("--db", "--populate-db", is_flag=True, help="Populate $DATABASE_URL in addition to the CSV.")
 @click.option("--days", help="Only collect data for the past n days.")
-def main(db: bool = False, days: int | None = None):
+def main(populate_db: bool = False, days: int | None = None):
     """
     Combine all the data sources into a single CSV file, with both new and daily stats for each day.
     """
-    df = collect_daily_download_stats(days=days)
-    if db:
-        db_url = os.environ.get("DATABASE_URL")
-        if days is None:
-            # Initiating the database with historical data, making sure we are not overriding th entire database:
-            try:
-                # Add a new date column separate from index in order to ensure the db uses Date type
-                df["date"] = pd.to_datetime(df.index)
-                df = df[["date"] + [c for c in df.columns if c != "date"]]  # place date first
-                df.to_sql("downloads", db_url, if_exists="fail", index=False, index_label="date")
-            except ValueError as e:
-                logging.error(
-                    f"Failed to save historical data to {db_url}, the table might already exist? "
-                    f"Clean manually if you want to replace the historical data: {e}"
-                )
-            except Exception as e:
-                logging.error(f"Failed to write historical downloads stats to {db_url}: {e}")
-            else:
-                print(f"Wrote historical downloads stats to {db_url}")
+    collect_daily_download_stats(populate_db=populate_db, db_table="downloads", days=days)
+
+
+def collect_daily_download_stats(
+    populate_db: bool = False,
+    db_con=None,
+    db_table="downloads",
+    days: int | None = None,
+) -> pd.DataFrame:
+    df = _collect_daily_download_stats_to_df(days=days)
+    if not populate_db:
+        return df
+
+    db_con = db_con or os.environ.get("DATABASE_URL")
+    if db_con is None:
+        logging.error("No DATABASE_URL environment variable found, skipping database writing")
+        return df
+
+    df["date"] = pd.to_datetime(df.index)  # adding a separate field date with a type datetime
+    df = df[["date"] + [c for c in df.columns if c != "date"]]  # place date first
+
+    if days is None:
+        # Initiating the database with historical data, making sure we are not
+        # overriding th entire database.
+        try:
+            # Add a new date column separate from index in order to ensure the db uses Date type
+            df.to_sql(db_table, db_con, if_exists="fail", index=False, index_label="date")
+        except ValueError as e:
+            logging.error(
+                f"Failed to save historical data to table {db_table}, the table might already exist? "
+                f"Clean manually if you want to replace the historical data: {e}"
+            )
+            raise
+        except Exception as e:
+            logging.error(f"Failed to write historical downloads stats to table {db_table}: {e}")
+            raise
         else:
-            try:
-                df.to_sql("downloads", db_url, if_exists="replace")
-            except Exception as e:
-                logging.error(f"Failed to append the downloads stats for last {days} days to {db_url}: {e}")
-            else:
-                print(f"Appended downloads stats for last {days} days to {db_url}")
+            print(f"Wrote historical downloads stats to table {db_table}")
+    else:
+        try:
+            df.to_sql(db_table, db_con, if_exists="replace", index=False, index_label="date")
+        except Exception as e:
+            logging.error(f"Failed to append the downloads stats for last {days} days to table {db_table}: {e}")
+            raise
+        else:
+            print(f"Appended downloads stats for last {days} days to table {db_table}")
+    return df
 
 
-def collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
+def _collect_daily_download_stats_to_df(days: int | None = None) -> pd.DataFrame:
     df = get_pypi(days=days)
 
     if (df_bioconda := get_bioconda()) is not None:

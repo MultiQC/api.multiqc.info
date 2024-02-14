@@ -10,7 +10,7 @@ import csv
 load_dotenv()
 
 TABLE_NAME = "downloads"
-CSV_PATH = Path(__file__).parent / "historical.csv"
+CSV_PATH = Path(__file__).parent / "daily.csv"
 
 # Connect to the database
 connection = MySQLdb.connect(

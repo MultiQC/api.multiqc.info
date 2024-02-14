@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app import __version__, db, models
 from app.db import engine
-
+from downloads import daily
 
 app = FastAPI(
     title="MultiQC API",
@@ -37,7 +37,10 @@ app = FastAPI(
 
 def get_latest_release() -> models.LatestRelease:
     """Get the latest release from the database."""
-    g = Github(getenv("GITHUB_TOKEN"))
+    token = getenv("GITHUB_TOKEN")
+    if not token:
+        raise ValueError("GITHUB_TOKEN environment variable is not set")
+    g = Github(token)
     repo = g.get_repo("ewels/MultiQC")
     release = repo.get_latest_release()
     return models.LatestRelease(
@@ -141,8 +144,12 @@ async def summarize_visits():
         df["end"] = df["end"].dt.strftime("%Y-%m-%d %H:%M")
         df = df.drop(columns=["timestamp"])
         df = df.fillna("Unknown")  # df.groupby will fail if there are NaNs
+
         # Summarize visits per user per minute
         minute_summary = df.groupby(["start", "end"] + fieldnames).size().reset_index(name="count")
+        if len(minute_summary) == 0:
+            return Response(status_code=204, content="No new visits to summarize")
+
         logger.debug(
             f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(minute_summary)} rows to the DB"
         )
@@ -157,39 +164,62 @@ async def summarize_visits():
             open(CSV_FILE_PATH, "w").close()
         except Exception as e:
             logger.error(f"Failed to write to the database: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            return Response(status_code=500, content=str(e))
         else:
             logger.debug(f"Successfully wrote {len(minute_summary)} rows to the DB")
             # Clear the CSV file on successful write
             open(CSV_FILE_PATH, "w").close()
-        return Response(status_code=200)
-
-
-# Add a /summarize endpoint to trigger the summarize logic manually available only when developing
-if os.getenv("ENVIRONMENT") == "DEV":
-
-    @app.get("/summarize")
-    async def summarize_visits_endpoint():
-        try:
-            # Call the summarize logic here if possible or replicate the logic
-            await summarize_visits()
-            return Response(status_code=200)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        return Response(
+            status_code=200,
+            content=f"Successfully summarized {len(df)} visits to {len(minute_summary)} per-minute entries",
+        )
 
 
 @app.on_event("startup")
 @repeat_every(seconds=60 * 60 * 1)  # daily
-@app.get("/downloads")
-async def downloads():
+async def update_downloads():
     """
-    MultiQC package downloads across difference sources, and when available,
-    different versions.
+    Update the daily download statistics in the database.
+    """
+    try:
+        if not db.get_downloads():  # first time, populate historical data
+            df = daily.collect_daily_download_stats(
+                db_con=engine,
+                db_table="downloads",
+            )
+            return Response(
+                status_code=200,
+                content=f"Successfully populated {len(df)} historical daily entries to the downloads table",
+            )
+        else:  # recent 2 days
+            daily.collect_daily_download_stats(
+                db_con=engine,
+                db_table="downloads",
+                days=2,
+            )
+            return Response(status_code=200, content="Successfully appended new daily download statistics")
+    except Exception as e:
+        return Response(status_code=500, content=str(e))
 
-    Fetch from the database which will be populated by the script in the
-    https://github.com/MultiQC/usage repo, run on a chron job.
-    """
-    return {}
+
+# Add endpoints to trigger the cron jobs manually, available only when developing
+if os.getenv("ENVIRONMENT") == "DEV":
+
+    @app.get("/summarize_visits")
+    async def summarize_visits_endpoint():
+        try:
+            # Call the summarize logic here if possible or replicate the logic
+            return await summarize_visits()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/update_downloads")
+    async def update_downloads_endpoint():
+        try:
+            # Call the update logic here if possible or replicate the logic
+            return await update_downloads()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/version.php", response_class=PlainTextResponse)
