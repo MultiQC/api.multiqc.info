@@ -64,9 +64,8 @@ def collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
     if cache_path.exists():
         existing_df = pd.read_csv(
             cache_path,
-            index_col="date",
-            dtype={k: "Int64" for k in keys},  # Int64 is a nullable integer version of int64
-        )
+            dtype={k: "date" if k == "date" else "Int64" for k in keys},  # Int64 is a nullable integer version of int64
+        ).set_index("date")
         # Fixing <NA> as nan and converting values to int
         for k in keys:
             existing_df[k] = existing_df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else np.nan)
@@ -116,6 +115,7 @@ def _collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
         df[k] = df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else np.nan)
         df[k] = df[k].astype("Int64")  # Int64 is a nullable integer version of int64
 
+    df = df.set_index("date")
     return df
 
 

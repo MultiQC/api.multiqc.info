@@ -184,7 +184,7 @@ def _update_download_stats():
     try:
         existing_downloads = db.get_download_stats()
     except ProgrammingError:
-        logger.error("The downloads table does not exist, will create and populate with historical data")
+        logger.error("The table does not exist, will create and populate with historical data")
         existing_downloads = []
     if len(existing_downloads) == 0:  # first time, populate historical data
         logger.info("Populating historical data...")
