@@ -122,7 +122,9 @@ CSV_FILE_PATH = Path(__file__).parent / "visits.csv"
 @app.on_event("startup")
 @repeat_every(seconds=10)  # every 10 seconds
 async def persist_visits():
-    """Write in-memory visits to a CSV file"""
+    """
+    Write visits from memory to a CSV file
+    """
     global visit_buffer
     with visit_buffer_lock:
         if visit_buffer:
@@ -134,6 +136,9 @@ async def persist_visits():
 
 
 def _summarize_visits() -> Response:
+    """
+    Summarize visits from the CSV file and write to the database
+    """
     with visit_buffer_lock:
         df = pd.read_csv(CSV_FILE_PATH, sep=",", names=["timestamp"] + visit_fieldnames)
         df["start"] = pd.to_datetime(df["timestamp"])
@@ -176,10 +181,16 @@ def _summarize_visits() -> Response:
 @app.on_event("startup")
 @repeat_every(seconds=60 * 60 * 1)  # every hour
 async def summarize_visits():
+    """
+    Repeated task to summarize visits.
+    """
     return _summarize_visits()
 
 
 def _update_download_stats():
+    """
+    Update the daily download statistics in the database
+    """
     logger.info("Update download stats")
     try:
         existing_downloads = db.get_download_stats()
@@ -205,17 +216,18 @@ def _update_download_stats():
     logger=logger,
 )
 async def update_downloads(background_tasks: BackgroundTasks):
-    """Update the daily download statistics in the database."""
+    """
+    Repeated task to update the daily download statistics.
+    """
     background_tasks.add_task(_update_download_stats)
 
 
-# Add endpoints to trigger the cron jobs manually, available only when developing
 if os.getenv("ENVIRONMENT") == "DEV":
+    # Add endpoints to trigger the cron jobs manually, available only when developing
 
     @app.get("/summarize_visits")
     async def summarize_visits_endpoint():
         try:
-            # Call the summarize logic here if possible or replicate the logic
             return await summarize_visits()
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
