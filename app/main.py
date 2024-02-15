@@ -75,7 +75,7 @@ def update_version():
 
 
 # Fields to store per visit
-fieldnames = [
+visit_fieldnames = [
     "version_multiqc",
     "version_python",
     "operating_system",
@@ -128,16 +128,14 @@ async def persist_visits():
         if visit_buffer:
             logger.debug(f"Persisting {len(visit_buffer)} visits to CSV {CSV_FILE_PATH}")
             with open(CSV_FILE_PATH, mode="a") as file:
-                writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + fieldnames)
+                writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + visit_fieldnames)
                 writer.writerows(visit_buffer)
             visit_buffer = []
 
 
-@app.on_event("startup")
-@repeat_every(seconds=60 * 60 * 1)  # every hour
-async def summarize_visits():
+def _summarize_visits() -> Response:
     with visit_buffer_lock:
-        df = pd.read_csv(CSV_FILE_PATH, sep=",", names=["timestamp"] + fieldnames)
+        df = pd.read_csv(CSV_FILE_PATH, sep=",", names=["timestamp"] + visit_fieldnames)
         df["start"] = pd.to_datetime(df["timestamp"])
         df["end"] = df["start"] + pd.to_timedelta("1min")
         df["start"] = df["start"].dt.strftime("%Y-%m-%d %H:%M")
@@ -146,7 +144,7 @@ async def summarize_visits():
         df = df.fillna("Unknown")  # df.groupby will fail if there are NaNs
 
         # Summarize visits per user per minute
-        minute_summary = df.groupby(["start", "end"] + fieldnames).size().reset_index(name="count")
+        minute_summary = df.groupby(["start", "end"] + visit_fieldnames).size().reset_index(name="count")
         if len(minute_summary) == 0:
             return Response(status_code=204, content="No new visits to summarize")
 
@@ -176,37 +174,39 @@ async def summarize_visits():
 
 
 @app.on_event("startup")
-@repeat_every(seconds=60 * 60 * 24)  # daily
-async def update_downloads():
-    """
-    Update the daily download statistics in the database.
-    """
+@repeat_every(seconds=60 * 60 * 1)  # every hour
+async def summarize_visits():
+    return _summarize_visits()
+
+
+def _update_download_stats():
+    logger.info("Update download stats")
     try:
-        existing_downloads = db.get_downloads()
+        existing_downloads = db.get_download_stats()
     except ProgrammingError:
         logger.error("The downloads table does not exist, will create and populate with historical data")
         existing_downloads = []
-    try:
-        if len(existing_downloads) == 0:  # first time, populate historical data
-            df = daily.collect_daily_download_stats(
-                populate_db=True,
-                db_con=engine,
-                db_table="downloads",
-            )
-            return Response(
-                status_code=200,
-                content=f"Successfully populated {len(df)} historical daily entries to the downloads table",
-            )
-        else:  # recent 2 days
-            daily.collect_daily_download_stats(
-                populate_db=True,
-                db_con=engine,
-                db_table="downloads",
-                days=2,
-            )
-            return Response(status_code=200, content="Successfully appended new daily download statistics")
-    except Exception as e:
-        return Response(status_code=500, content=str(e))
+    if len(existing_downloads) == 0:  # first time, populate historical data
+        logger.info("Populating historical data...")
+        df = daily.collect_daily_download_stats()
+        db.insert_download_stats(df)
+        logger.info(f"Successfully populated {len(df)} historical daily entries to the downloads table")
+    else:  # recent 2 days
+        logger.info("Updating data for the last 2 days...")
+        df = daily.collect_daily_download_stats(days=4)
+        db.insert_download_stats(df, days=4)
+        logger.info("Successfully appended new daily download statistics")
+
+
+@app.on_event("startup")
+@repeat_every(
+    seconds=60 * 60 * 24,  # every day
+    wait_first=True,
+    logger=logger,
+)
+async def update_downloads(background_tasks: BackgroundTasks):
+    """Update the daily download statistics in the database."""
+    background_tasks.add_task(_update_download_stats)
 
 
 # Add endpoints to trigger the cron jobs manually, available only when developing
@@ -220,11 +220,10 @@ if os.getenv("ENVIRONMENT") == "DEV":
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    @app.get("/update_downloads")
-    async def update_downloads_endpoint():
+    @app.get("/update_download_stats")
+    async def update_downloads_endpoint(background_tasks: BackgroundTasks):
         try:
-            # Call the update logic here if possible or replicate the logic
-            return await update_downloads()
+            background_tasks.add_task(_update_download_stats)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
@@ -296,10 +295,10 @@ async def plot_usage(
 ):
     """Plot usage metrics."""
     # Get visit data
-    visits = db.get_visits(start=start, end=end, limit=limit)
+    visits = db.get_visit_stats(start=start, end=end, limit=limit)
     if not visits:
         return Response(status_code=204)
-    df = pd.DataFrame.from_records([i.dict() for i in visits])
+    df = pd.DataFrame.from_records([i.model_dump() for i in visits])
     df.fillna("Unknown", inplace=True)
     legend_title_text = models.usage_category_nicenames[categories] if categories else None
 
