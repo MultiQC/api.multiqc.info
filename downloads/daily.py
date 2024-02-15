@@ -18,6 +18,7 @@ an existing CSV file.
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 
 import click
@@ -26,16 +27,17 @@ import packaging.version
 import pandas as pd
 import pypistats
 import requests
-import sqlalchemy
 from github import Github
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
 
 # Load environment variables from the .env file
 load_dotenv()
 
 
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+# Make sure logs are printed to stdout:
+logger.addHandler(logging.StreamHandler(sys.stdout))
 
 # CSV path location to cache the acquired data
 cache_path = Path(__file__).parent / "daily.csv"
@@ -44,21 +46,15 @@ sources_path = Path(__file__).parent / "sources"
 
 
 @click.command()
-@click.option("--populate-db", is_flag=True, help="Populate $DATABASE_URL in addition to the CSV.")
 @click.option("--days", type=int, help="Only collect data for the past N days.")
-def main(populate_db: bool = False, days: int | None = None):
+def main(days: int | None = None):
     """
     Combine all the data sources into a single CSV file, with both new and daily stats for each day.
     """
-    collect_daily_download_stats(populate_db=populate_db, db_table="downloads", days=days)
+    collect_daily_download_stats(days=days)
 
 
-def collect_daily_download_stats(
-    populate_db: bool = False,
-    db_con: sqlalchemy.Engine | None = None,
-    db_table="downloads",
-    days: int | None = None,
-) -> pd.DataFrame:
+def collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
     df = _collect_daily_download_stats(days=days)
 
     # Update the existing CSV.
@@ -75,79 +71,11 @@ def collect_daily_download_stats(
         for k in keys:
             existing_df[k] = existing_df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else np.nan)
             existing_df[k] = existing_df[k].astype("Int64")  # Int64 is a nullable integer version of int64
-        df = existing_df.combine_first(df)
-
-    print(f"Saving daily downloads stats to {cache_path}")
-    df.to_csv(cache_path, index=True)
-
-    if populate_db:
-        print(f"Writing to the database '{db_table}'")
-        _write_to_db(df, db_con=db_con, db_table=db_table, days=days)
-    return df
-
-
-def _write_to_db(
-    df: pd.DataFrame,
-    db_con: sqlalchemy.Engine | None = None,
-    db_table="downloads",
-    days: int | None = None,
-) -> pd.DataFrame:
-    if db_con is None:
-        if url := os.environ.get("DATABASE_URL"):
-            db_con = create_engine(url)
-        else:
-            logging.error("No DATABASE_URL environment variable found, skipping database writing")
-            return df
-
-    df["date"] = pd.to_datetime(df.index)  # adding a separate field date with a type datetime
-    df = df[["date"] + [c for c in df.columns if c != "date"]]  # place date first
-
-    if days is None:
-        # Initiating the database with historical data, making sure we are not
-        # overriding th entire database.
-        try:
-            # Add a new date column separate from index in order to ensure the db uses Date type
-            df.to_sql(db_table, db_con, if_exists="fail", index=False, index_label="date")
-        except ValueError as e:
-            logging.error(
-                f"Failed to save historical data to table '{db_table}', the table might already exist? "
-                f"Clean manually if you want to replace the historical data: {e}"
-            )
-            raise
-        except Exception as e:
-            logging.error(f"Failed to write historical downloads stats to table '{db_table}': {e}")
-            raise
-        # Adding date as a primary key. Not wrapping in try-except here because if the DB was
-        # populated without problems but failed creating a primary key, something is wrong here
-        # and needs to vbe cleaned up manually.
-        with db_con.connect() as c:
-            cursor = c.connection.cursor()
-            cursor.execute(f"ALTER TABLE {db_table} ADD PRIMARY KEY (date);")
-        print(f"Wrote historical downloads stats to table '{db_table}'")
+        full_df = existing_df.combine_first(df)
     else:
-        logging.debug(
-            f"Adding recent {len(df)} entries to the '{db_table}' table one by one, updating if"
-            f"an entry at this date already exists"
-        )
-        with db_con.connect() as con:
-            cursor = con.connection.cursor()
-            for index, row in df.iterrows():
-                date = row["date"].strftime("%Y-%m-%d")
-                values = ", ".join([f"'{date}'"] + [str(x) if not pd.isna(x) else "NULL" for x in row[1:]])
-                query = f"""
-    INSERT INTO {db_table} ({", ".join(df.columns)}) VALUES ({values})
-    ON DUPLICATE KEY UPDATE 
-    {',\n'.join([f'{col} = VALUES({col})' for col in df.columns if col != 'date'])};
-                """
-                try:
-                    cursor.execute(query)
-                except Exception as e:
-                    logging.error(f"Failed to execute query: {query}: {e}")
-                    cursor.close()
-                    raise
-            con.commit()
-            cursor.close()
-        logging.debug(f"Updated last {days} days to in daily downloads table '{db_table}'")
+        full_df = df
+    print(f"Saving daily downloads stats to {cache_path}")
+    full_df.to_csv(cache_path, index=True)
     return df
 
 
@@ -272,7 +200,7 @@ def get_bioconda(days: int | None = None):
 
     response = requests.get(url)
     if response.status_code != 200:
-        logging.error(f"Failed to fetch data from {url}:", response.status_code, response.text)
+        logger.error(f"Failed to fetch data from {url}:", response.status_code, response.text)
         return None
 
     df = json.loads(response.text)
@@ -298,12 +226,12 @@ def biocontainers_aws_total():
     response = requests.post(url, headers=headers, json=data)
 
     if response.status_code != 200:
-        logging.error(f"Failed to fetch data from {url}:", response.status_code, response.text)
+        logger.error(f"Failed to fetch data from {url}:", response.status_code, response.text)
         return None
     try:
         count = response.json()["insightData"]["downloadCount"]
     except IndexError:
-        logging.error("Cannot extract insightData/downloadCount from response:", response.text)
+        logger.error("Cannot extract insightData/downloadCount from response:", response.text)
         return None
     return count
 
@@ -315,7 +243,7 @@ def get_biocontainers_quay(days: int | None = None):
     url = "https://quay.io/api/v1/repository/biocontainers/multiqc?includeStats=true&includeTags=false"
     response = requests.get(url)
     if response.status_code != 200:
-        logging.error(f"Failed to fetch data from Quay.io, status code: {response.status_code}, url: {url}")
+        logger.error(f"Failed to fetch data from Quay.io, status code: {response.status_code}, url: {url}")
         return None
     data = json.loads(response.text)
 
@@ -352,7 +280,7 @@ def dockerhub_total() -> int | None:
     url = "https://hub.docker.com/v2/repositories/ewels/multiqc/"
     response = requests.get(url)
     if response.status_code != 200:
-        logging.error(f"Failed to fetch data from DockerHub, status code: {response.status_code}, url: {url}")
+        logger.error(f"Failed to fetch data from DockerHub, status code: {response.status_code}, url: {url}")
         return None
     data = json.loads(response.text)
     return data.get("pull_count", 0)
@@ -368,7 +296,7 @@ def github_clones_total():
 
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
-        logging.error(f"Failed to fetch data from GitHub, status code: {response.status_code}, url: {url}")
+        logger.error(f"Failed to fetch data from GitHub, status code: {response.status_code}, url: {url}")
         return None
 
     github_data = json.loads(response.text)
@@ -384,8 +312,6 @@ def get_github_prs(days: int | None = None):
     entries = []
     for pr in repo.get_pulls(state="all", sort="created", direction="asc"):
         author = pr.user.login
-        if days is not None and pr.created_at.date() < pd.to_datetime("today").date() - pd.Timedelta(days, "D"):
-            continue
         entry = {
             "date": pr.created_at,
             "author": author,
@@ -425,6 +351,8 @@ def get_github_prs(days: int | None = None):
     df["contributors_total"] = df["contributors_new"].cumsum().astype(int)
 
     df["date"] = df["date"].apply(lambda x: x.strftime("%Y-%m-%d"))
+    if days is not None:
+        df = df.tail(days)
     return df.set_index("date")
 
 
@@ -441,12 +369,12 @@ def github_modules(days: int | None = None):
     clone_path = sources_path / "MultiQC"
     if not clone_path.exists():
         Repo.clone_from(repo_url, clone_path)
-        logging.debug(f"{repo_url} cloned at {clone_path}")
+        logger.debug(f"{repo_url} cloned at {clone_path}")
     else:
         Repo(clone_path).remotes.origin.pull("main")
-        logging.debug(f"Pulled main in {clone_path}")
+        logger.debug(f"Pulled main in {clone_path}")
 
-    logging.debug(f"Collecting module commit dates from {clone_path}")
+    logger.debug(f"Collecting module commit dates from {clone_path}")
     for module_path in (clone_path / "multiqc/modules").iterdir():
         if not module_path.is_dir():
             continue
@@ -455,8 +383,6 @@ def github_modules(days: int | None = None):
             continue
         cmd = f"git -C {clone_path} log --follow --format='%ai' -- {module_path} | tail -1"
         date = os.popen(cmd).read().strip()
-        if days is not None and pd.to_datetime(date).date() < pd.to_datetime("today").date() - pd.Timedelta(days, "D"):
-            continue
         entries.append({"date": date, "name": module_path.name})
 
     df = pd.DataFrame(entries)
@@ -484,6 +410,9 @@ def github_modules(days: int | None = None):
 
     df = df.rename(columns={"modules": "modules_new"})
     df["modules_total"] = df["modules_new"].cumsum()
+
+    if days is not None:
+        df = df.tail(days)
     return df.set_index("date")
 
 
