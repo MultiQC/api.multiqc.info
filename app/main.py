@@ -176,7 +176,7 @@ async def summarize_visits():
 
 
 @app.on_event("startup")
-@repeat_every(seconds=60 * 60 * 1)  # daily
+@repeat_every(seconds=60 * 60 * 24)  # daily
 async def update_downloads():
     """
     Update the daily download statistics in the database.
