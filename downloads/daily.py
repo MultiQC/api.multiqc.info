@@ -115,7 +115,6 @@ def _collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
         df[k] = df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else np.nan)
         df[k] = df[k].astype("Int64")  # Int64 is a nullable integer version of int64
 
-    df = df.set_index("date")
     return df
 
 
@@ -264,6 +263,7 @@ def get_biocontainers_quay(days: int | None = None):
             df.sort_index(inplace=True)
         df.to_csv(path)
         df = pd.read_csv(path)
+        df = df.set_index("date")
         print(f"Saved {path}")
 
     df.rename(columns={"count": "biocontainers_quay_new"}, inplace=True)
