@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 
 import click
+import numpy as np
 import packaging.version
 import pandas as pd
 import pypistats
@@ -44,7 +45,7 @@ sources_path = Path(__file__).parent / "sources"
 
 @click.command()
 @click.option("--populate-db", is_flag=True, help="Populate $DATABASE_URL in addition to the CSV.")
-@click.option("--days", help="Only collect data for the past N days.")
+@click.option("--days", type=int, help="Only collect data for the past N days.")
 def main(populate_db: bool = False, days: int | None = None):
     """
     Combine all the data sources into a single CSV file, with both new and daily stats for each day.
@@ -70,14 +71,11 @@ def collect_daily_download_stats(
             index_col="date",
             dtype={k: "Int64" for k in keys},  # Int64 is a nullable integer version of int64
         )
-        # Only update the entries in existing_df with non-NaN entries in df
+        # Fixing <NA> as nan and converting values to int
         for k in keys:
-            existing_df[k] = existing_df[k].fillna(df[k])
-        df = existing_df
-
-    # for k in keys:
-    #     df[k] = df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else np.nan)
-    #     df[k] = df[k].astype("Int64")  # Int64 is a nullable integer version of int64
+            existing_df[k] = existing_df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else np.nan)
+            existing_df[k] = existing_df[k].astype("Int64")  # Int64 is a nullable integer version of int64
+        df = existing_df.combine_first(df)
 
     print(f"Saving daily downloads stats to {cache_path}")
     df.to_csv(cache_path, index=True)
@@ -185,6 +183,11 @@ def _collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
     if days is not None:
         df = df.tail(days)
 
+    keys = [k for k in df.keys() if k != "date"]
+    for k in keys:
+        df[k] = df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else np.nan)
+        df[k] = df[k].astype("Int64")  # Int64 is a nullable integer version of int64
+
     return df
 
 
@@ -247,7 +250,7 @@ def get_pypi_historic():
     return df.set_index("date")
 
 
-def get_pipy_recent(since=None):
+def get_pipy_recent(days: int | None = None):
     """
     Use pypistats to get PyPI download count for the past 5 months.
     """
@@ -255,6 +258,8 @@ def get_pipy_recent(since=None):
     df = df[df["category"] == "with_mirrors"]
     df.sort_values("date", inplace=True)
     df = df[["date", "downloads"]]
+    if days is not None:
+        df = df.tail(days)
     return df.set_index("date")
 
 
@@ -316,30 +321,22 @@ def get_biocontainers_quay(days: int | None = None):
 
     stats = data["stats"]
     df = pd.DataFrame(stats)
-    df["date"] = pd.to_datetime(df["date"])
     df.sort_values("date", inplace=True)
-    # index by date
     df = df.set_index("date")
-    if days is not None and days < 90:
-        return df.tail(days)
-
-    path = sources_path / "biocontainers-quay-historic.csv"
-    if path.exists():
-        print(f"Previous Quay stats found at {path}, appending")
-        existing_df = pd.read_csv(path)
-        # index by date
-        existing_df["date"] = pd.to_datetime(existing_df["date"])
-        existing_df = existing_df.set_index("date")
-        # append new data
-        df = pd.concat([existing_df, df])
-        # remove duplicates
-        df = df[~df.index.duplicated(keep="last")]
-        # sort by date
-        df.sort_index(inplace=True)
-
-    df.to_csv(path)
-    df = pd.read_csv(path)
-    print(f"Saved {path}")
+    if days is None or days > 90:
+        path = sources_path / "biocontainers-quay-historic.csv"
+        if path.exists():
+            print(f"Previous Quay stats found at {path}, appending")
+            existing_df = pd.read_csv(path, index_col="date", dtype={"count": "Int64"})
+            # append new data
+            df = pd.concat([existing_df, df])
+            # remove duplicates
+            df = df[~df.index.duplicated(keep="last")]
+            # sort by date
+            df.sort_index(inplace=True)
+        df.to_csv(path)
+        df = pd.read_csv(path)
+        print(f"Saved {path}")
 
     df.rename(columns={"count": "biocontainers_quay_new"}, inplace=True)
     df["biocontainers_quay_total"] = df["biocontainers_quay_new"].cumsum()
@@ -387,7 +384,7 @@ def get_github_prs(days: int | None = None):
     entries = []
     for pr in repo.get_pulls(state="all", sort="created", direction="asc"):
         author = pr.user.login
-        if days is not None and pr.created_at < pd.to_datetime("today") - pd.Timedelta(days, "D"):
+        if days is not None and pr.created_at.date() < pd.to_datetime("today").date() - pd.Timedelta(days, "D"):
             continue
         entry = {
             "date": pr.created_at,
@@ -458,7 +455,7 @@ def github_modules(days: int | None = None):
             continue
         cmd = f"git -C {clone_path} log --follow --format='%ai' -- {module_path} | tail -1"
         date = os.popen(cmd).read().strip()
-        if days is not None and pd.to_datetime(date) < pd.to_datetime("today") - pd.Timedelta(days, "D"):
+        if days is not None and pd.to_datetime(date).date() < pd.to_datetime("today").date() - pd.Timedelta(days, "D"):
             continue
         entries.append({"date": date, "name": module_path.name})
 
