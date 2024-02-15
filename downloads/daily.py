@@ -1,5 +1,5 @@
 """
-Collect current and historic download counts per day for MultiQC:
+A script to collect current and historic MultiQC download counts, per day:
     * PyPI
     * BioConda
     * BioContainers (quay.io and AWS mirror)
@@ -8,10 +8,10 @@ Collect current and historic download counts per day for MultiQC:
     * GitHub pull requests
     * GitHub contributors
 
-Write a combined CSV file that can be sent to a database.
+Stores data in a CSV file that can be sent to a database.
 
 Can be re-run regularly to update the data, so only new data will be added to 
-an existing CSV file. Can be adjusted accordingly with a database.
+an existing CSV file.
 """
 
 
@@ -21,7 +21,6 @@ import os
 from pathlib import Path
 
 import click
-import numpy as np
 import packaging.version
 import pandas as pd
 import pypistats
@@ -37,13 +36,15 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
-out_path = Path(__file__).parent / "daily.csv"
-cache_path = Path(__file__).parent / "cache"
+# CSV path location to cache the acquired data
+cache_path = Path(__file__).parent / "daily.csv"
+# Additional sources of historical data
+sources_path = Path(__file__).parent / "sources"
 
 
 @click.command()
-@click.option("--db", "--populate-db", is_flag=True, help="Populate $DATABASE_URL in addition to the CSV.")
-@click.option("--days", help="Only collect data for the past n days.")
+@click.option("--populate-db", is_flag=True, help="Populate $DATABASE_URL in addition to the CSV.")
+@click.option("--days", help="Only collect data for the past N days.")
 def main(populate_db: bool = False, days: int | None = None):
     """
     Combine all the data sources into a single CSV file, with both new and daily stats for each day.
@@ -57,10 +58,42 @@ def collect_daily_download_stats(
     db_table="downloads",
     days: int | None = None,
 ) -> pd.DataFrame:
-    df = _collect_daily_download_stats_to_df(days=days)
-    if not populate_db:
-        return df
+    df = _collect_daily_download_stats(days=days)
 
+    # Update the existing CSV.
+    # Only add data where it's not already present.
+    # For existing data, check that it's the same as the new data.
+    keys = [k for k in df.keys() if k != "date"]
+    if cache_path.exists():
+        existing_df = pd.read_csv(
+            cache_path,
+            index_col="date",
+            dtype={k: "Int64" for k in keys},  # Int64 is a nullable integer version of int64
+        )
+        # Only update the entries in existing_df with non-NaN entries in df
+        for k in keys:
+            existing_df[k] = existing_df[k].fillna(df[k])
+        df = existing_df
+
+    # for k in keys:
+    #     df[k] = df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else np.nan)
+    #     df[k] = df[k].astype("Int64")  # Int64 is a nullable integer version of int64
+
+    print(f"Saving daily downloads stats to {cache_path}")
+    df.to_csv(cache_path, index=True)
+
+    if populate_db:
+        print(f"Writing to the database '{db_table}'")
+        _write_to_db(df, db_con=db_con, db_table=db_table, days=days)
+    return df
+
+
+def _write_to_db(
+    df: pd.DataFrame,
+    db_con: sqlalchemy.Engine | None = None,
+    db_table="downloads",
+    days: int | None = None,
+) -> pd.DataFrame:
     if db_con is None:
         if url := os.environ.get("DATABASE_URL"):
             db_con = create_engine(url)
@@ -120,19 +153,19 @@ def collect_daily_download_stats(
     return df
 
 
-def _collect_daily_download_stats_to_df(days: int | None = None) -> pd.DataFrame:
+def _collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
     df = get_pypi(days=days)
 
-    if (df_bioconda := get_bioconda()) is not None:
+    if (df_bioconda := get_bioconda(days=days)) is not None:
         df = df.merge(df_bioconda, on="date", how="outer").sort_values("date")
 
-    df_quay = get_biocontainers_quay()
+    df_quay = get_biocontainers_quay(days=days)
     df = df.merge(df_quay, on="date", how="outer").sort_values("date")
 
-    df_prs = get_github_prs()
+    df_prs = get_github_prs(days=days)
     df = df.merge(df_prs, on="date", how="outer").sort_values("date")
 
-    df_modules = github_modules()
+    df_modules = github_modules(days=days)
     df = df.merge(df_modules, on="date", how="outer").sort_values("date")
 
     today = pd.to_datetime("today").strftime("%Y-%m-%d")
@@ -149,32 +182,9 @@ def _collect_daily_download_stats_to_df(days: int | None = None) -> pd.DataFrame
         df_clones = pd.DataFrame([[today, clones]], columns=["date", "clones_total"]).set_index("date")
         df = df.merge(df_clones, on="date", how="outer")
 
-    # globally convert all NaN to NA - call "apply" to all columns and all rows
-    # this is needed to convert NaN to NA in the "date" column
-    keys = [k for k in df.keys() if k != "date"]
-    # for k in keys:
-    #     df[k] = df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else pandas.NA)
-
-    # Update the existing data frame.
-    # Only add data where it's not already present.
-    # For existing data, check that it's the same as the new data.
-    if out_path.exists():
-        existing_df = pd.read_csv(out_path)
-        existing_df = existing_df.set_index("date")
-
-        # Only update the entries in existing_df with non-NaN entries in df
-        for k in keys:
-            existing_df[k] = existing_df[k].fillna(df[k])
-        df = existing_df
-
-    for k in keys:
-        df[k] = df[k].apply(lambda x: int(float(x)) if not pd.isna(x) else np.nan)
-        df[k] = df[k].astype("Int64")  # Int64 is a nullable integer version of int64
-
-    df.to_csv(out_path, index=True)
-    print(f"Saved daily downloads stats to {out_path}")
     if days is not None:
         df = df.tail(days)
+
     return df
 
 
@@ -204,6 +214,8 @@ def get_pypi(days: int | None = None):
         df.drop("downloads", axis=1, inplace=True)
         df["pip_total"] = df["pip_new"].cumsum()
 
+    if days is not None:
+        df = df.tail(days)
     return df
 
 
@@ -223,7 +235,7 @@ def get_pypi_historic():
     ''', project_id=os.environ["GCP_PROJECT"])
     ```
     """
-    pypi_path = cache_path / "pypi-daily.csv"
+    pypi_path = sources_path / "pypi-historic.csv"
     df = pd.read_csv(
         pypi_path,
         parse_dates=["download_day"],
@@ -246,7 +258,7 @@ def get_pipy_recent(since=None):
     return df.set_index("date")
 
 
-def get_bioconda():
+def get_bioconda(days: int | None = None):
     """
     For the past 2 weeks, BioConda download stats.
     """
@@ -266,6 +278,8 @@ def get_bioconda():
     df["bioconda_total"] = df["bioconda_total"].astype(int)
     df.sort_values("date", inplace=True)
     df = df.groupby("date").sum().drop("version", axis=1)
+    if days is not None:
+        df = df.tail(days)
     return df
 
 
@@ -289,7 +303,7 @@ def biocontainers_aws_total():
     return count
 
 
-def get_biocontainers_quay(since=None):
+def get_biocontainers_quay(days: int | None = None):
     """
     For the last 3 months, total numbers of BioContainers Quay.io mirror downloads.
     """
@@ -306,8 +320,10 @@ def get_biocontainers_quay(since=None):
     df.sort_values("date", inplace=True)
     # index by date
     df = df.set_index("date")
+    if days is not None and days < 90:
+        return df.tail(days)
 
-    path = cache_path / "biocontainers-quay-daily.csv"
+    path = sources_path / "biocontainers-quay-historic.csv"
     if path.exists():
         print(f"Previous Quay stats found at {path}, appending")
         existing_df = pd.read_csv(path)
@@ -327,6 +343,8 @@ def get_biocontainers_quay(since=None):
 
     df.rename(columns={"count": "biocontainers_quay_new"}, inplace=True)
     df["biocontainers_quay_total"] = df["biocontainers_quay_new"].cumsum()
+    if days is not None:
+        df = df.tail(days)
     return df
 
 
@@ -364,26 +382,21 @@ def get_github_prs(days: int | None = None):
     """
     Daily and total PRs and contributors.
     """
-    path = cache_path / "github-pull-requests.csv"
-    if path.exists():
-        print(f"{path} exists, loading")
-        df = pd.read_csv(path)
-    else:
-        g = Github(os.environ["GITHUB_TOKEN"])
-        repo = g.get_repo("ewels/MultiQC")
-        entries = []
-        for pr in repo.get_pulls(state="all", sort="created", direction="asc"):
-            author = pr.user.login
-            entry = {
-                "date": pr.created_at,
-                "author": author,
-                "prs": 1,
-            }
-            entries.append(entry)
+    g = Github(os.environ["GITHUB_TOKEN"])
+    repo = g.get_repo("ewels/MultiQC")
+    entries = []
+    for pr in repo.get_pulls(state="all", sort="created", direction="asc"):
+        author = pr.user.login
+        if days is not None and pr.created_at < pd.to_datetime("today") - pd.Timedelta(days, "D"):
+            continue
+        entry = {
+            "date": pr.created_at,
+            "author": author,
+            "prs": 1,
+        }
+        entries.append(entry)
 
-        df = pd.DataFrame(entries)
-        df.to_csv(path, index=False)
-        print(f"Saved {path}")
+    df = pd.DataFrame(entries)
 
     df["date"] = pd.to_datetime(df["date"])
     df["author"] = df["author"].apply(lambda x: [x])
@@ -418,32 +431,40 @@ def get_github_prs(days: int | None = None):
     return df.set_index("date")
 
 
-def github_modules(since=None):
+def github_modules(days: int | None = None):
     """
     Daily and total new MultiQC modules.
     """
-    path = cache_path / "new-modules.csv"
-    if path.exists():
-        print(f"{path} exists, loading")
-        df = pd.read_csv(path)
-    else:
-        entries = []
-        REPO_ROOT = Path("..").resolve()
-        for module_path in (REPO_ROOT / "multiqc/modules").iterdir():
-            if not module_path.is_dir():
-                continue
-            init_path = module_path / "__init__.py"
-            if not init_path.exists():
-                continue
-            cmd = f"git -C {REPO_ROOT} log --follow --format='%ai' -- {module_path} | tail -1"
-            date = os.popen(cmd).read().strip()
-            entries.append({"date": date, "name": module_path.name})
+    entries = []
 
-        df = pd.DataFrame(entries)
-        df["date"] = pd.to_datetime(df["date"], utc=True)
-        df.sort_values("date", inplace=True)
-        df.to_csv(path, index=False)
-        print(f"Saved {path}")
+    # Clone MultiQC/MultiQC repo and get the date of the last commit for each module
+    from git import Repo
+
+    repo_url = "https://github.com/MultiQC/MultiQC.git"
+    clone_path = sources_path / "MultiQC"
+    if not clone_path.exists():
+        Repo.clone_from(repo_url, clone_path)
+        logging.debug(f"{repo_url} cloned at {clone_path}")
+    else:
+        Repo(clone_path).remotes.origin.pull("main")
+        logging.debug(f"Pulled main in {clone_path}")
+
+    logging.debug(f"Collecting module commit dates from {clone_path}")
+    for module_path in (clone_path / "multiqc/modules").iterdir():
+        if not module_path.is_dir():
+            continue
+        init_path = module_path / "__init__.py"
+        if not init_path.exists():
+            continue
+        cmd = f"git -C {clone_path} log --follow --format='%ai' -- {module_path} | tail -1"
+        date = os.popen(cmd).read().strip()
+        if days is not None and pd.to_datetime(date) < pd.to_datetime("today") - pd.Timedelta(days, "D"):
+            continue
+        entries.append({"date": date, "name": module_path.name})
+
+    df = pd.DataFrame(entries)
+    df["date"] = pd.to_datetime(df["date"], utc=True)
+    df.sort_values("date", inplace=True)
 
     # Take the day part only, and sum up multiple entries per one day
     try:
