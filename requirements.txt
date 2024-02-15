@@ -4,6 +4,8 @@ kaleido
 pandas
 plotly
 PyGithub
+gitpython
 pymysql[rsa]
 sqlmodel
 uvicorn
+dotenv
