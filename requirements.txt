@@ -8,4 +8,4 @@ gitpython
 pymysql[rsa]
 sqlmodel
 uvicorn
-dotenv
+python-dotenv
