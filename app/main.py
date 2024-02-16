@@ -58,13 +58,12 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+@app.on_event("startup")
+async def startup():
     # Initialise the DB and tables on server startup
     db.create_db_and_tables()
     # Sync latest version tag using GitHub API
     app.latest_release = get_latest_release()
-    yield
 
 
 @app.on_event("startup")
