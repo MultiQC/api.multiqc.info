@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from app import __version__, db, models
 from app.db import engine
-from downloads import daily
+from app.downloads import daily
 
 app = FastAPI(
     title="MultiQC API",
