@@ -7,7 +7,7 @@ PyGithub
 gitpython
 pymysql[rsa]
 sqlmodel
-psycopg2
+psycopg2-binary
 uvicorn
 python-dotenv
 pypistats
