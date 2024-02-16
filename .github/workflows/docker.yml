@@ -3,9 +3,6 @@ name: Build docker image
 on:
   push:
     branches: [main]
-    paths:
-      - app/**
-      - Dockerfile
 
 jobs:
   docker:
