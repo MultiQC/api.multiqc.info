@@ -9,3 +9,4 @@ pymysql[rsa]
 sqlmodel
 uvicorn
 python-dotenv
+pypistats
