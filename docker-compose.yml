@@ -12,7 +12,7 @@ services:
     # Set in .env
     # Don't pass the root password
     environment:
-      DATABASE_URL: mysql+pymysql://$MYSQL_USER:$MYSQL_PASSWORD@db:3306/$MYSQL_DB
+      DATABASE_URL: $$DATABASE_URL
       GITHUB_TOKEN: $GITHUB_TOKEN
     depends_on:
       wait-for-db:
@@ -24,13 +24,10 @@ services:
     volumes:
       - ./.mysql-data/db:/var/lib/mysql
     ports:
-      - 3306:3306
+      - "3306:3306"
     # Set in .env
     environment:
-      MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD
-      MYSQL_DATABASE: $MYSQL_DB
-      MYSQL_USER: $MYSQL_USER
-      MYSQL_PASSWORD: $MYSQL_PASSWORD
+      DATABASE_URL: $DATABASE_URL
   wait-for-db:
     container_name: wait_for_db
     image: atkrad/wait4x
