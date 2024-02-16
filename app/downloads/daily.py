@@ -290,8 +290,8 @@ def github_clones_total():
     """
     Total number of GitHub clones.
     """
-    github_token = os.environ.get("GITHUB_TOKEN")
-    url = "https://api.github.com/repos/ewels/MultiQC/traffic/clones"
+    github_token = os.environ["GITHUB_TOKEN"]
+    url = "https://api.github.com/repos/MultiQC/MultiQC/traffic/clones"
     headers = {"Authorization": f"token {github_token}"}
 
     response = requests.get(url, headers=headers)
@@ -308,7 +308,7 @@ def get_github_prs(days: int | None = None):
     Daily and total PRs and contributors.
     """
     g = Github(os.environ["GITHUB_TOKEN"])
-    repo = g.get_repo("ewels/MultiQC")
+    repo = g.get_repo("MultiQC/MultiQC")
     entries = []
     for pr in repo.get_pulls(state="all", sort="created", direction="asc"):
         author = pr.user.login
