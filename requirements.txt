@@ -1,8 +1,4 @@
+elastic-apm
 fastapi
-kaleido
-pandas
-plotly
 PyGithub
-pymysql[rsa]
-sqlmodel
 uvicorn

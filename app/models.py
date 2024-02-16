@@ -1,5 +1,4 @@
 import datetime
-from enum import Enum
 
 from pydantic import BaseModel, HttpUrl
 
@@ -33,56 +32,3 @@ class VersionResponse(BaseModel):
     latest_release: LatestRelease
     broadcast_messages: list[BroadcastMessage] = []
     module_warnings: list[ModuleWarning] = []
-
-
-class IntervalTypes(str, Enum):
-    """Allowed intervals for the usage endpoint."""
-
-    S = "second"
-    T = "minute"
-    H = "hour"
-    D = "day"
-    W = "week"
-    M = "month"
-    Y = "year"
-
-
-interval_types_plotly = {
-    "second": "S1",
-    "minute": "T1",
-    "hour": "H1",
-    "day": "D1",
-    "week": "W1",
-    "month": "M1",
-    "year": "Y1",
-}
-
-
-class SortTypes(str, Enum):
-    """Allowed sort types for the usage endpoint."""
-
-    date_asc = "date_asc"
-    date_desc = "date_desc"
-
-
-class UsageCategory(str, Enum):
-    """How to categorise the usage data."""
-
-    version_multiqc = "version_multiqc"
-    version_multiqc_simple = "version_multiqc_simple"
-    version_python = "version_python"
-    version_python_simple = "version_python_simple"
-    operating_system = "operating_system"
-    installation_method = "installation_method"
-    ci_environment = "ci_environment"
-
-
-usage_category_nicenames = dict(
-    version_multiqc="MultiQC version",
-    version_multiqc_simple="MultiQC version (simple)",
-    version_python="Python version",
-    version_python_simple="Python version (simple)",
-    operating_system="Operating system",
-    installation_method="Installation method",
-    ci_environment="CI environment",
-)
