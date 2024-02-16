@@ -157,7 +157,7 @@ def _summarize_visits() -> Response:
             f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(minute_summary)} rows to the DB"
         )
         try:
-            minute_summary.to_sql("visits", con=engine, if_exists="append", index=False)
+            minute_summary.to_sql("visitstats", con=engine, if_exists="append", index=False)
         except IntegrityError as e:
             logger.error(
                 f"Failed to write to the database due to a primary key violation, "
