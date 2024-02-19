@@ -8,12 +8,11 @@ services:
     volumes:
       - .:/code
     ports:
-      - 8008:8000
-    # Set in .env
-    # Don't pass the root password
+      - "8008:8000"
     environment:
-      DATABASE_URL: $$DATABASE_URL
+      # Set in .env
       GITHUB_TOKEN: $GITHUB_TOKEN
+      DATABASE_URL: mysql+pymysql://root:1@db:3306/multiqc
     depends_on:
       wait-for-db:
         condition: service_completed_successfully
@@ -25,9 +24,10 @@ services:
       - ./.mysql-data/db:/var/lib/mysql
     ports:
       - "3306:3306"
-    # Set in .env
     environment:
-      DATABASE_URL: $DATABASE_URL
+      MYSQL_DATABASE: mysql+pymysql
+      MYSQL_USER: root
+      MYSQL_PASSWORD: 1
   wait-for-db:
     container_name: wait_for_db
     image: atkrad/wait4x
