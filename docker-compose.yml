@@ -12,6 +12,7 @@ services:
     environment:
       # Set in .env
       GITHUB_TOKEN: $GITHUB_TOKEN
+      # Matches the "db" service below
       DATABASE_URL: mysql+pymysql://root:1@db:3306/multiqc
     depends_on:
       wait-for-db:
