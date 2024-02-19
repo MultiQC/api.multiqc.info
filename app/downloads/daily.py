@@ -73,7 +73,7 @@ def collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
         full_df = existing_df.combine_first(df)
     else:
         full_df = df
-    print(f"Saving daily downloads stats to {cache_path}")
+    logger.info(f"Saving daily downloads stats to {cache_path}")
     full_df.to_csv(cache_path, index=True)
     return df
 

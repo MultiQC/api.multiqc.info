@@ -1,9 +1,10 @@
+import http
+
 import csv
 import datetime
 import logging
 import os
 import sys
-from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
 
@@ -150,7 +151,7 @@ def _summarize_visits() -> Response:
         # Summarize visits per user per minute
         minute_summary = df.groupby(["start", "end"] + visit_fieldnames).size().reset_index(name="count")
         if len(minute_summary) == 0:
-            return Response(status_code=204, content="No new visits to summarize")
+            return PlainTextResponse(content="No new visits to summarize")
 
         logger.debug(
             f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(minute_summary)} rows to the DB"
@@ -160,21 +161,21 @@ def _summarize_visits() -> Response:
         except IntegrityError as e:
             logger.error(
                 f"Failed to write to the database due to a primary key violation, "
-                f"probably these entries were already added: {e}"
+                f"probably these entries were already added. Cleaning the temporary file "
+                f"{CSV_FILE_PATH}. Error: {e}"
             )
             # Cleaning the file to avoid duplicates
             open(CSV_FILE_PATH, "w").close()
         except Exception as e:
             logger.error(f"Failed to write to the database: {e}")
-            return Response(status_code=500, content=str(e))
+            return PlainTextResponse(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, content=str(e))
         else:
             logger.debug(f"Successfully wrote {len(minute_summary)} rows to the DB")
             # Clear the CSV file on successful write
             open(CSV_FILE_PATH, "w").close()
-        return Response(
-            status_code=200,
-            content=f"Successfully summarized {len(df)} visits to {len(minute_summary)} per-minute entries",
-        )
+    return PlainTextResponse(
+        content=f"Successfully summarized {len(df)} visits to {len(minute_summary)} per-minute entries",
+    )
 
 
 @app.on_event("startup")
@@ -227,16 +228,17 @@ if os.getenv("ENVIRONMENT") == "DEV":
     @app.get("/summarize_visits")
     async def summarize_visits_endpoint():
         try:
-            return await summarize_visits()
+            return _summarize_visits()
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(e))
 
     @app.get("/update_download_stats")
     async def update_downloads_endpoint(background_tasks: BackgroundTasks):
         try:
             background_tasks.add_task(_update_download_stats)
+            return PlainTextResponse(content="Queued updating the download stats in the DB")
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @app.get("/version.php", response_class=PlainTextResponse)
@@ -308,7 +310,7 @@ async def plot_usage(
     # Get visit data
     visits = db.get_visit_stats(start=start, end=end, limit=limit)
     if not visits:
-        return Response(status_code=204)
+        return PlainTextResponse(content="No usage data available to plot")
     df = pd.DataFrame.from_records([i.model_dump() for i in visits])
     df.fillna("Unknown", inplace=True)
     legend_title_text = models.usage_category_nicenames[categories] if categories else None

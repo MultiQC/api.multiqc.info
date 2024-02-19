@@ -22,7 +22,7 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 class VisitStats(SQLModel, table=True):  # type: ignore # mypy doesn't like this, not sure why
     """
     Table to record per-minute visit summaries.
-    
+
     Start is a primary key, and start and end are both indexed.
     """
 
