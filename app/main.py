@@ -253,8 +253,8 @@ async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None
     Accessed by MultiQC versions 1.14 and earlier,
     after being redirected to by https://multiqc.info/version.php
     """
-    with visit_buffer_lock:
-        visit_buffer.append(
+    with app.visit_buffer_lock:
+        app.visit_buffer.append(
             {
                 "timestamp": datetime.datetime.now().isoformat(),
                 "version_multiqc": v,
