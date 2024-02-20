@@ -84,8 +84,8 @@ visit_fieldnames = [
 ]
 
 # Thread-safe in-memory buffer to accumulate recent visits before writing to the CSV file
-visit_buffer = []
-visit_buffer_lock = Lock()
+app.visit_buffer = []
+app.visit_buffer_lock = Lock()
 
 
 @app.get("/version")  # log a visit
@@ -100,8 +100,8 @@ async def version(
     Endpoint for MultiQC that returns the latest release, and logs
     the visit along with basic user environment detail.
     """
-    with visit_buffer_lock:
-        visit_buffer.append(
+    with app.visit_buffer_lock:
+        app.visit_buffer.append(
             {
                 "timestamp": datetime.datetime.now().isoformat(),
                 "version_multiqc": version_multiqc,
@@ -125,21 +125,20 @@ async def persist_visits():
     """
     Write visits from memory to a CSV file
     """
-    global visit_buffer
-    with visit_buffer_lock:
-        if visit_buffer:
-            logger.debug(f"Persisting {len(visit_buffer)} visits to CSV {CSV_FILE_PATH}")
+    with app.visit_buffer_lock:
+        if app.visit_buffer:
             with open(CSV_FILE_PATH, mode="a") as file:
                 writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + visit_fieldnames)
-                writer.writerows(visit_buffer)
-            visit_buffer = []
+                writer.writerows(app.visit_buffer)
+            logger.debug(f"Persisted {len(app.visit_buffer)} visits to CSV {CSV_FILE_PATH}")
+            app.visit_buffer = []
 
 
 def _summarize_visits() -> Response:
     """
     Summarize visits from the CSV file and write to the database
     """
-    with visit_buffer_lock:
+    with app.visit_buffer_lock:
         df = pd.read_csv(CSV_FILE_PATH, sep=",", names=["timestamp"] + visit_fieldnames)
         df["start"] = pd.to_datetime(df["timestamp"])
         df["end"] = df["start"] + pd.to_timedelta("1min")
