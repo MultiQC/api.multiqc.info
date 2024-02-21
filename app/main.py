@@ -85,8 +85,8 @@ visit_fieldnames = [
 ]
 
 # Thread-safe in-memory buffer to accumulate recent visits before writing to the CSV file
-app.visit_buffer = []
-app.visit_buffer_lock = Lock()
+visit_buffer = []
+visit_buffer_lock = Lock()
 
 
 @app.get("/version")  # log a visit
@@ -101,8 +101,9 @@ async def version(
     Endpoint for MultiQC that returns the latest release, and logs
     the visit along with basic user environment detail.
     """
-    with app.visit_buffer_lock:
-        app.visit_buffer.append(
+    global visit_buffer
+    with visit_buffer_lock:
+        visit_buffer.append(
             {
                 "timestamp": datetime.datetime.now().isoformat(),
                 "version_multiqc": version_multiqc,
@@ -126,7 +127,8 @@ async def persist_visits():
     """
     Write visits from memory to a CSV file
     """
-    with app.visit_buffer_lock:
+    logger.debug(f" {len(app.visit_buffer)} visits to CSV {CSV_FILE_PATH}")
+    with visit_buffer_lock:
         if app.visit_buffer:
             with open(CSV_FILE_PATH, mode="a") as file:
                 writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + visit_fieldnames)
@@ -139,7 +141,7 @@ def _summarize_visits() -> Response:
     """
     Summarize visits from the CSV file and write to the database
     """
-    with app.visit_buffer_lock:
+    with visit_buffer_lock:
         df = pd.read_csv(CSV_FILE_PATH, sep=",", names=["timestamp"] + visit_fieldnames)
         df["start"] = pd.to_datetime(df["timestamp"])
         df["end"] = df["start"] + pd.to_timedelta("1min")
@@ -254,8 +256,9 @@ async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None
     Accessed by MultiQC versions 1.14 and earlier,
     after being redirected to by https://multiqc.info/version.php
     """
-    with app.visit_buffer_lock:
-        app.visit_buffer.append(
+    global visit_buffer
+    with visit_buffer_lock:
+        visit_buffer.append(
             {
                 "timestamp": datetime.datetime.now().isoformat(),
                 "version_multiqc": v,
