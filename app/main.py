@@ -171,14 +171,19 @@ def _summarize_visits() -> Response:
     """
     global visit_buffer_lock
     with visit_buffer_lock:
-        df = pd.read_csv(CSV_FILE_PATH, sep=",", names=["timestamp"] + visit_fieldnames)
+        df = pd.read_csv(
+            CSV_FILE_PATH,
+            sep=",",
+            names=["timestamp"] + visit_fieldnames,
+            dtype="string",
+            na_filter=False,  # prevent empty strings from converting to nan or <NA>
+        )
         df["start"] = pd.to_datetime(df["timestamp"])
         df["end"] = df["start"] + pd.to_timedelta("1min")
         df["start"] = df["start"].dt.strftime("%Y-%m-%d %H:%M")
         df["end"] = df["end"].dt.strftime("%Y-%m-%d %H:%M")
         df["ci_environment"] = df["ci_environment"].apply(lambda val: strtobool(val) if val else False)
         df = df.drop(columns=["timestamp"])
-        df = df.fillna("Unknown")  # df.groupby will fail if there are NaNs
 
         # Summarize visits per user per minute
         minute_summary = df.groupby(["start", "end"] + visit_fieldnames).size().reset_index(name="count")
