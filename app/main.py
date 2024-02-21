@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import http
 
 import csv
@@ -5,7 +7,6 @@ import datetime
 import logging
 import os
 import sys
-from pathlib import Path
 from threading import Lock
 
 import uvicorn
@@ -116,7 +117,7 @@ async def version(
 
 # Path to a buffer CSV file to persist recent visits before dumping to the database
 # In the same folder as this script
-CSV_FILE_PATH = Path(__file__).parent / "visits.csv"
+CSV_FILE_PATH = Path(os.getenv("TMPDIR")) / "visits.csv"
 
 
 @app.on_event("startup")
