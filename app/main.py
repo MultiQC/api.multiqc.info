@@ -165,7 +165,7 @@ async def persist_visits():
     return _persist_visits()
 
 
-def _summarize_visits() -> Response:
+def _summarize_visits(interval="5min") -> Response:
     """
     Summarize visits from the CSV file and write to the database
     """
@@ -179,30 +179,30 @@ def _summarize_visits() -> Response:
             na_filter=False,  # prevent empty strings from converting to nan or <NA>
         )
         df["start"] = pd.to_datetime(df["timestamp"])
-        df["end"] = df["start"] + pd.to_timedelta("1min")
+        df["end"] = df["start"] + pd.to_timedelta(interval)
         df["start"] = df["start"].dt.strftime("%Y-%m-%d %H:%M")
         df["end"] = df["end"].dt.strftime("%Y-%m-%d %H:%M")
         df["ci_environment"] = df["ci_environment"].apply(lambda val: strtobool(val) if val else False)
         df = df.drop(columns=["timestamp"])
 
-        # Summarize visits per user per minute
-        minute_summary = df.groupby(["start", "end"] + visit_fieldnames).size().reset_index(name="count")
-        if len(minute_summary) == 0:
+        # Summarize visits per user per time interval
+        interval_summary = df.groupby(["start", "end"] + visit_fieldnames).size().reset_index(name="count")
+        if len(interval_summary) == 0:
             return PlainTextResponse(content="No new visits to summarize")
 
-        logger.info(f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(minute_summary)} rows to the DB")
+        logger.info(f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(interval_summary)} rows to the DB")
         try:
-            db.insert_usage_stats(minute_summary)
+            db.insert_usage_stats(interval_summary)
         except Exception as e:
             return PlainTextResponse(
                 status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, 
                 content=f"Failed to write to the database: {e}",
             )
         else:
-            logger.info(f"Successfully wrote {len(minute_summary)} rows to the DB")
+            logger.info(f"Successfully wrote {len(interval_summary)} rows to the DB")
             open(CSV_FILE_PATH, "w").close()  # Clear the CSV file on successful write
             return PlainTextResponse(
-                content=f"Successfully summarized {len(df)} visits to {len(minute_summary)} per-minute entries",
+                content=f"Successfully summarized {len(df)} visits to {len(interval_summary)} per-interval entries",
             )
 
 

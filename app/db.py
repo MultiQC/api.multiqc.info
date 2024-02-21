@@ -23,7 +23,7 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 
 class VisitStats(SQLModel, table=True):
     """
-    Table to record per-minute visit summaries.
+    Table to record per-interval visit summaries.
 
     All keys describing the platform are primary, so we have separate a usage record 
     coming from each source.
@@ -73,7 +73,7 @@ def get_visit_stats(
     end: datetime.datetime | None = None,
     limit: int | None = None,
 ) -> Sequence[VisitStats]:
-    """Return list of per-minute visit summary from the DB."""
+    """Return list of per-interval visit summary from the DB."""
     with Session(engine) as session:
         statement = select(VisitStats)
         if start:
@@ -105,9 +105,9 @@ def get_download_stats(
         return session.exec(statement).all()
 
 
-def insert_usage_stats(minute_summary: pd.DataFrame):
+def insert_usage_stats(visit_stats: pd.DataFrame):
     with Session(engine) as session:
-        for index, row in minute_summary.iterrows():
+        for index, row in visit_stats.iterrows():
             existing_entry = session.exec(
                 select(VisitStats).where(
                     VisitStats.start == row["start"]
