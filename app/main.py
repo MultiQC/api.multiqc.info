@@ -1,3 +1,5 @@
+import sys
+
 from pathlib import Path
 
 import http
@@ -6,7 +8,6 @@ import csv
 import datetime
 import logging
 import os
-import sys
 from threading import Lock
 
 import uvicorn
@@ -25,6 +26,11 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError
 from app import __version__, db, models
 from app.db import engine
 from app.downloads import daily
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+# Make sure logs are printed to stdout:
+logger.addHandler(logging.StreamHandler(sys.stdout))
 
 app = FastAPI(
     title="MultiQC API",
@@ -53,11 +59,6 @@ def get_latest_release() -> models.LatestRelease:
 
 
 app.latest_release = get_latest_release()
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-# Make sure logs are printed to stdout:
-logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 @app.on_event("startup")
@@ -113,6 +114,7 @@ async def version(
                 "ci_environment": strtobool(ci_environment) if ci_environment is not None else None,
             }
         )
+        logger.info(f"Logging visit, total visits: {len(visit_buffer)}")
     return models.VersionResponse(latest_release=app.latest_release)
 
 
@@ -121,26 +123,50 @@ async def version(
 CSV_FILE_PATH = Path(os.getenv("TMPDIR", "/tmp")) / "visits.csv"
 
 
-@app.on_event("startup")
-@repeat_every(seconds=10)  # every 10 seconds
-async def persist_visits():
+def _persist_visits() -> Response:
     """
     Write visits from memory to a CSV file
     """
-    logger.debug(f" {len(app.visit_buffer)} visits to CSV {CSV_FILE_PATH}")
+    global visit_buffer_lock
+    global visit_buffer
     with visit_buffer_lock:
-        if app.visit_buffer:
-            with open(CSV_FILE_PATH, mode="a") as file:
-                writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + visit_fieldnames)
-                writer.writerows(app.visit_buffer)
-            logger.debug(f"Persisted {len(app.visit_buffer)} visits to CSV {CSV_FILE_PATH}")
-            app.visit_buffer = []
+        n_visits_file = 0
+        if CSV_FILE_PATH.exists():
+            with open(CSV_FILE_PATH, mode="r") as file:
+                n_visits_file = sum(1 for _ in file)
+        if not visit_buffer:
+            return PlainTextResponse(content=f"No new visits to persist. File contains {n_visits_file} entries")
+        logger.info(
+            f"Appending {len(visit_buffer)} visits to {CSV_FILE_PATH} that currently contains {n_visits_file} visits"
+        )
+        with open(CSV_FILE_PATH, mode="a") as file:
+            writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + visit_fieldnames)
+            writer.writerows(visit_buffer)
+        logger.info(f"Persisted {len(visit_buffer)} visits to CSV {CSV_FILE_PATH}")
+        visit_buffer = []
+        with open(CSV_FILE_PATH, mode="r") as file:
+            n_visits_file = sum(1 for _ in file)
+        logger.info(f"CSV {CSV_FILE_PATH} now contains {n_visits_file} visits")
+        return PlainTextResponse(
+            content=f"Successfully persisted visits to {CSV_FILE_PATH}, file now contains {n_visits_file} entries"
+        )
+
+
+@app.on_event("startup")
+@repeat_every(
+    seconds=10,
+    wait_first=True,
+    logger=logger,
+)
+async def persist_visits():
+    return _persist_visits()
 
 
 def _summarize_visits() -> Response:
     """
     Summarize visits from the CSV file and write to the database
     """
+    global visit_buffer_lock
     with visit_buffer_lock:
         df = pd.read_csv(CSV_FILE_PATH, sep=",", names=["timestamp"] + visit_fieldnames)
         df["start"] = pd.to_datetime(df["timestamp"])
@@ -158,9 +184,7 @@ def _summarize_visits() -> Response:
         # Replace Unknown with None
         minute_summary = minute_summary.replace("Unknown", None)
 
-        logger.debug(
-            f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(minute_summary)} rows to the DB"
-        )
+        logger.info(f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(minute_summary)} rows to the DB")
         try:
             minute_summary.to_sql("visitstats", con=engine, if_exists="append", index=False)
         except IntegrityError as e:
@@ -175,7 +199,7 @@ def _summarize_visits() -> Response:
             logger.error(f"Failed to write to the database: {e}")
             return PlainTextResponse(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, content=str(e))
         else:
-            logger.debug(f"Successfully wrote {len(minute_summary)} rows to the DB")
+            logger.info(f"Successfully wrote {len(minute_summary)} rows to the DB")
             # Clear the CSV file on successful write
             open(CSV_FILE_PATH, "w").close()
     return PlainTextResponse(
@@ -184,7 +208,11 @@ def _summarize_visits() -> Response:
 
 
 @app.on_event("startup")
-@repeat_every(seconds=60 * 60 * 1)  # every hour
+@repeat_every(
+    seconds=60 * 60 * 1,  # every hour
+    wait_first=True,
+    logger=logger,
+)
 async def summarize_visits():
     """
     Repeated task to summarize visits.
@@ -204,14 +232,14 @@ def _update_download_stats():
     if len(existing_downloads) == 0:  # first time, populate historical data
         logger.info("Collecting historical data...")
         df = daily.collect_daily_download_stats()
-        logger.debug(f"Adding {len(df)} historical entries to the table...")
+        logger.info(f"Adding {len(df)} historical entries to the table...")
         db.insert_download_stats(df)
         logger.info(f"Successfully populated {len(df)} historical entries")
     else:  # recent days only
         n_days = 4
         logger.info(f"Updating data for the last {n_days} days...")
         df = daily.collect_daily_download_stats(days=n_days)
-        logger.debug(f"Adding {len(df)} recent entries to the table. Will update existing entries at the same date")
+        logger.info(f"Adding {len(df)} recent entries to the table. Will update existing entries at the same date")
         db.insert_download_stats(df)
         logger.info(f"Successfully updated {len(df)} new daily download statistics")
 
@@ -232,14 +260,21 @@ async def update_downloads(background_tasks: BackgroundTasks):
 if os.getenv("ENVIRONMENT") == "DEV":
     # Add endpoints to trigger the cron jobs manually, available only when developing
 
-    @app.get("/summarize_visits")
+    @app.post("/persist_visits")
+    async def persist_visits_endpoint():
+        try:
+            return _persist_visits()
+        except Exception as e:
+            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(e))
+
+    @app.post("/summarize_visits")
     async def summarize_visits_endpoint():
         try:
             return _summarize_visits()
         except Exception as e:
             raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(e))
 
-    @app.get("/update_download_stats")
+    @app.post("/update_download_stats")
     async def update_downloads_endpoint(background_tasks: BackgroundTasks):
         try:
             background_tasks.add_task(_update_download_stats)
