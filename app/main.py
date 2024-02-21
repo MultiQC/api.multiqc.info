@@ -1,6 +1,5 @@
 from typing import List, Dict
 
-import sys
 
 from pathlib import Path
 
@@ -30,8 +29,17 @@ from app.downloads import daily
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-# Make sure logs are printed to stdout:
-logger.addHandler(logging.StreamHandler(sys.stdout))
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+log_path = Path(os.getenv("TMPDIR", "/tmp")) / "multiqc_api.log"
+fh = logging.FileHandler(log_path)
+fh.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+fh.setFormatter(formatter)
+ch.setFormatter(formatter)
+logger.addHandler(fh)
+logger.addHandler(ch)
+logger.debug(f"Logging to {log_path}")
 
 app = FastAPI(
     title="MultiQC API",
