@@ -29,15 +29,16 @@ class VisitStats(SQLModel, table=True):
     coming from each source.
     """
 
-    start: datetime.datetime = Field(primary_key=True)
-    end: datetime.datetime = Field(primary_key=True)
-    version_multiqc: str = Field(primary_key=True)
-    version_python: str = Field(primary_key=True)
-    operating_system: str = Field(primary_key=True)
-    is_docker: bool = Field(primary_key=True)
-    is_singularity: bool = Field(primary_key=True)
-    is_conda: bool = Field(primary_key=True)
-    is_ci: bool = Field(primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
+    start: datetime.datetime
+    end: datetime.datetime
+    version_multiqc: str
+    version_python: str
+    operating_system: str
+    is_docker: bool
+    is_singularity: bool
+    is_conda: bool
+    is_ci: bool
     count: int
 
 
@@ -110,24 +111,8 @@ def get_download_stats(
 def insert_usage_stats(visit_stats: pd.DataFrame):
     with Session(engine) as session:
         for index, row in visit_stats.iterrows():
-            existing_entry = session.exec(
-                select(VisitStats).where(
-                    VisitStats.start == row["start"]
-                    and VisitStats.end == row["end"]
-                    and VisitStats.version_multiqc == row["version_multiqc"]
-                    and VisitStats.version_python == row["version_python"]
-                    and VisitStats.operating_system == row["operating_system"]
-                    and VisitStats.is_docker == row["is_docker"]
-                    and VisitStats.is_singularity == row["is_singularity"]
-                    and VisitStats.is_conda == row["is_conda"]
-                    and VisitStats.is_ci == row["is_ci"]
-                )
-            ).first()
-            if existing_entry:
-                existing_entry.count += row["count"]
-            else:
-                new_entry = VisitStats(**row)
-                session.add(new_entry)
+            new_entry = VisitStats(**row)
+            session.add(new_entry)
         session.commit()
 
 
