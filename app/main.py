@@ -1,4 +1,3 @@
-from asyncio import sleep
 
 from typing import List, Dict
 
@@ -110,7 +109,6 @@ async def version(
     Endpoint for MultiQC that returns the latest release, and logs
     the visit along with basic user environment detail.
     """
-    await sleep(60)
     background_tasks.add_task(
         _log_visit,
         version_multiqc=version_multiqc,
