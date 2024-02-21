@@ -31,11 +31,11 @@ class VisitStats(SQLModel, table=True):  # type: ignore # mypy doesn't like this
     start: datetime.datetime = Field(primary_key=True)
     end: datetime.datetime = Field(primary_key=True)
     count: int
-    version_multiqc: Optional[str] = Field(default=None, index=True)
-    version_python: Optional[str] = Field(default=None, index=True)
-    operating_system: Optional[str] = Field(default=None, index=True)
-    installation_method: Optional[str] = Field(default=None, index=True)
-    ci_environment: Optional[bool] = Field(default=None, index=True)
+    version_multiqc: str
+    version_python: str
+    operating_system: str
+    installation_method: str
+    ci_environment: bool
 
 
 class DownloadStatsDaily(SQLModel, table=True):

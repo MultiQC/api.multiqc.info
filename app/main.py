@@ -1,3 +1,5 @@
+from typing import List, Dict
+
 import sys
 
 from pathlib import Path
@@ -86,17 +88,17 @@ visit_fieldnames = [
 ]
 
 # Thread-safe in-memory buffer to accumulate recent visits before writing to the CSV file
-visit_buffer = []
+visit_buffer: List[Dict[str, str]] = []
 visit_buffer_lock = Lock()
 
 
 @app.get("/version")  # log a visit
 async def version(
-    version_multiqc: str | None = None,
-    version_python: str | None = None,
-    operating_system: str | None = None,
-    installation_method: str | None = None,
-    ci_environment: str | None = None,
+    version_multiqc: str = "",
+    version_python: str = "",
+    operating_system: str = "",
+    installation_method: str = "",
+    ci_environment: str = "",
 ):
     """
     Endpoint for MultiQC that returns the latest release, and logs
@@ -111,7 +113,7 @@ async def version(
                 "version_python": version_python,
                 "operating_system": operating_system,
                 "installation_method": installation_method,
-                "ci_environment": strtobool(ci_environment) if ci_environment is not None else None,
+                "ci_environment": ci_environment,
             }
         )
         logger.info(f"Logging visit, total visits: {len(visit_buffer)}")
@@ -142,6 +144,7 @@ def _persist_visits() -> Response:
         with open(CSV_FILE_PATH, mode="a") as file:
             writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + visit_fieldnames)
             writer.writerows(visit_buffer)
+
         logger.info(f"Persisted {len(visit_buffer)} visits to CSV {CSV_FILE_PATH}")
         visit_buffer = []
         with open(CSV_FILE_PATH, mode="r") as file:
@@ -173,6 +176,7 @@ def _summarize_visits() -> Response:
         df["end"] = df["start"] + pd.to_timedelta("1min")
         df["start"] = df["start"].dt.strftime("%Y-%m-%d %H:%M")
         df["end"] = df["end"].dt.strftime("%Y-%m-%d %H:%M")
+        df["ci_environment"] = df["ci_environment"].apply(lambda val: strtobool(val) if val else False)
         df = df.drop(columns=["timestamp"])
         df = df.fillna("Unknown")  # df.groupby will fail if there are NaNs
 
