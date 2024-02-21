@@ -1,4 +1,3 @@
-
 from typing import List, Dict
 
 import sys
@@ -225,7 +224,7 @@ def _summarize_visits(interval="5min") -> Response:
             f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(interval_summary)} rows to the DB"
         )
         try:
-            db.insert_usage_stats(interval_summary)
+            db.insert_visit_stats(interval_summary)
         except Exception as e:
             return PlainTextResponse(
                 status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR,

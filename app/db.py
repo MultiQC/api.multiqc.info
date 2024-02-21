@@ -108,7 +108,7 @@ def get_download_stats(
         return session.exec(statement).all()
 
 
-def insert_usage_stats(visit_stats: pd.DataFrame):
+def insert_visit_stats(visit_stats: pd.DataFrame):
     with Session(engine) as session:
         for index, row in visit_stats.iterrows():
             new_entry = VisitStats(**row)
