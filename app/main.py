@@ -1,3 +1,5 @@
+from asyncio import sleep
+
 from typing import List, Dict
 
 import sys
@@ -23,10 +25,9 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi_utilities import repeat_every
 from github import Github
 from plotly.graph_objs import Layout
-from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.exc import ProgrammingError
 
 from app import __version__, db, models
-from app.db import engine
 from app.downloads import daily
 
 logger = logging.getLogger(__name__)
@@ -83,8 +84,10 @@ visit_fieldnames = [
     "version_multiqc",
     "version_python",
     "operating_system",
-    "installation_method",
-    "ci_environment",
+    "is_docker",
+    "is_singularity",
+    "is_conda",
+    "is_ci",
 ]
 
 # Thread-safe in-memory buffer to accumulate recent visits before writing to the CSV file
@@ -98,20 +101,25 @@ async def version(
     version_multiqc: str = "",
     version_python: str = "",
     operating_system: str = "",
-    installation_method: str = "",
-    ci_environment: str = "",
+    is_docker: str = "",
+    is_singularity: str = "",
+    is_conda: str = "",
+    is_ci: str = "",
 ):
     """
     Endpoint for MultiQC that returns the latest release, and logs
     the visit along with basic user environment detail.
     """
+    await sleep(60)
     background_tasks.add_task(
         _log_visit,
         version_multiqc=version_multiqc,
         version_python=version_python,
         operating_system=operating_system,
-        installation_method=installation_method,
-        ci_environment=ci_environment,
+        is_docker=is_docker,
+        is_singularity=is_singularity,
+        is_conda=is_conda,
+        is_ci=is_ci,
     )
     return models.VersionResponse(latest_release=app.latest_release)
 
@@ -120,8 +128,10 @@ def _log_visit(
     version_multiqc: str = "",
     version_python: str = "",
     operating_system: str = "",
-    installation_method: str = "",
-    ci_environment: str = "",
+    is_docker: str = "",
+    is_singularity: str = "",
+    is_conda: str = "",
+    is_ci: str = "",
 ):
     global visit_buffer
     with visit_buffer_lock:
@@ -131,11 +141,13 @@ def _log_visit(
                 "version_multiqc": version_multiqc,
                 "version_python": version_python,
                 "operating_system": operating_system,
-                "installation_method": installation_method,
-                "ci_environment": ci_environment,
+                "is_docker": is_docker,
+                "is_singularity": is_singularity,
+                "is_conda": is_conda,
+                "is_ci": is_ci,
             }
         )
-        logger.info(f"Logging visit, total visits: {len(visit_buffer)}")    
+        logger.info(f"Logging visit, total visits: {len(visit_buffer)}")
 
 
 # Path to a buffer CSV file to persist recent visits before dumping to the database
@@ -200,7 +212,10 @@ def _summarize_visits(interval="5min") -> Response:
         df["end"] = df["start"] + pd.to_timedelta(interval)
         df["start"] = df["start"].dt.strftime("%Y-%m-%d %H:%M")
         df["end"] = df["end"].dt.strftime("%Y-%m-%d %H:%M")
-        df["ci_environment"] = df["ci_environment"].apply(lambda val: strtobool(val) if val else False)
+        df["is_docker"] = df["is_docker"].apply(lambda val: strtobool(val) if val else False)
+        df["is_singularity"] = df["is_singularity"].apply(lambda val: strtobool(val) if val else False)
+        df["is_conda"] = df["is_conda"].apply(lambda val: strtobool(val) if val else False)
+        df["is_ci"] = df["is_ci"].apply(lambda val: strtobool(val) if val else False)
         df = df.drop(columns=["timestamp"])
 
         # Summarize visits per user per time interval
@@ -208,12 +223,14 @@ def _summarize_visits(interval="5min") -> Response:
         if len(interval_summary) == 0:
             return PlainTextResponse(content="No new visits to summarize")
 
-        logger.info(f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(interval_summary)} rows to the DB")
+        logger.info(
+            f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(interval_summary)} rows to the DB"
+        )
         try:
             db.insert_usage_stats(interval_summary)
         except Exception as e:
             return PlainTextResponse(
-                status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, 
+                status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR,
                 content=f"Failed to write to the database: {e}",
             )
         else:
@@ -291,7 +308,7 @@ if os.getenv("ENVIRONMENT") == "DEV":
         except Exception as e:
             raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(e))
 
-    @app.post("/update_download_stats")
+    @app.post("/update_downloads")
     async def update_downloads_endpoint(background_tasks: BackgroundTasks):
         try:
             background_tasks.add_task(_update_download_stats)

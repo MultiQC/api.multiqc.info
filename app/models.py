@@ -73,8 +73,10 @@ class UsageCategory(str, Enum):
     version_python = "version_python"
     version_python_simple = "version_python_simple"
     operating_system = "operating_system"
-    installation_method = "installation_method"
-    ci_environment = "ci_environment"
+    is_docker = "is_docker"
+    is_singularity = "is_singularity"
+    is_conda = "is_conda"
+    is_ci = "is_ci"
 
 
 usage_category_nicenames = dict(
@@ -83,6 +85,8 @@ usage_category_nicenames = dict(
     version_python="Python version",
     version_python_simple="Python version (simple)",
     operating_system="Operating system",
-    installation_method="Installation method",
-    ci_environment="CI environment",
+    is_docker="Docker",
+    is_singularity="Singularity",
+    is_conda="Conda",
+    is_ci="CI environment",
 )

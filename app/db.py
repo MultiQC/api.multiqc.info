@@ -25,7 +25,7 @@ class VisitStats(SQLModel, table=True):
     """
     Table to record per-interval visit summaries.
 
-    All keys describing the platform are primary, so we have separate a usage record 
+    All keys describing the platform are primary, so we have separate a usage record
     coming from each source.
     """
 
@@ -34,8 +34,10 @@ class VisitStats(SQLModel, table=True):
     version_multiqc: str = Field(primary_key=True)
     version_python: str = Field(primary_key=True)
     operating_system: str = Field(primary_key=True)
-    installation_method: str = Field(primary_key=True)
-    ci_environment: bool = Field(primary_key=True)
+    is_docker: bool = Field(primary_key=True)
+    is_singularity: bool = Field(primary_key=True)
+    is_conda: bool = Field(primary_key=True)
+    is_ci: bool = Field(primary_key=True)
     count: int
 
 
@@ -115,8 +117,10 @@ def insert_usage_stats(visit_stats: pd.DataFrame):
                     and VisitStats.version_multiqc == row["version_multiqc"]
                     and VisitStats.version_python == row["version_python"]
                     and VisitStats.operating_system == row["operating_system"]
-                    and VisitStats.installation_method == row["installation_method"]
-                    and VisitStats.ci_environment == row["ci_environment"]
+                    and VisitStats.is_docker == row["is_docker"]
+                    and VisitStats.is_singularity == row["is_singularity"]
+                    and VisitStats.is_conda == row["is_conda"]
+                    and VisitStats.is_ci == row["is_ci"]
                 )
             ).first()
             if existing_entry:
@@ -129,7 +133,7 @@ def insert_usage_stats(visit_stats: pd.DataFrame):
 
 def insert_download_stats(df: pd.DataFrame) -> pd.DataFrame:
     # df has "date" as an index. Re-adding it as a separate field with a type datetime
-    df["date"] = pd.to_datetime(df.index)  
+    df["date"] = pd.to_datetime(df.index)
     df = df[["date"] + [c for c in df.columns if c != "date"]]  # place date first
     with Session(engine) as session:
         for index, row in df.iterrows():
