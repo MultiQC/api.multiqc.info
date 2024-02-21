@@ -1,5 +1,5 @@
 """Functions to interact with the database."""
-from typing import Optional
+from typing import Optional, Sequence
 
 import logging
 import os
@@ -21,25 +21,28 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-class VisitStats(SQLModel, table=True):  # type: ignore # mypy doesn't like this, not sure why
+class VisitStats(SQLModel, table=True):
     """
     Table to record per-minute visit summaries.
 
-    Start is a primary key, and start and end are both indexed.
+    All keys describing the platform are primary, so we have separate a usage record 
+    coming from each source.
     """
 
     start: datetime.datetime = Field(primary_key=True)
     end: datetime.datetime = Field(primary_key=True)
+    version_multiqc: str = Field(primary_key=True)
+    version_python: str = Field(primary_key=True)
+    operating_system: str = Field(primary_key=True)
+    installation_method: str = Field(primary_key=True)
+    ci_environment: bool = Field(primary_key=True)
     count: int
-    version_multiqc: str
-    version_python: str
-    operating_system: str
-    installation_method: str
-    ci_environment: bool
 
 
 class DownloadStatsDaily(SQLModel, table=True):
-    """Daily download statistics"""
+    """
+    Daily download statistics.
+    """
 
     date: datetime.datetime = Field(primary_key=True)
     pip_new: Optional[int] = None
@@ -69,7 +72,7 @@ def get_visit_stats(
     start: datetime.datetime | None = None,
     end: datetime.datetime | None = None,
     limit: int | None = None,
-) -> list[VisitStats]:
+) -> Sequence[VisitStats]:
     """Return list of per-minute visit summary from the DB."""
     with Session(engine) as session:
         statement = select(VisitStats)
@@ -88,7 +91,7 @@ def get_download_stats(
     start: datetime.datetime | None = None,
     end: datetime.datetime | None = None,
     limit: int | None = None,
-) -> list[DownloadStatsDaily]:
+) -> Sequence[DownloadStatsDaily]:
     """Return list of daily download statistics from the DB."""
     with Session(engine) as session:
         statement = select(DownloadStatsDaily)
@@ -102,8 +105,31 @@ def get_download_stats(
         return session.exec(statement).all()
 
 
+def insert_usage_stats(minute_summary: pd.DataFrame):
+    with Session(engine) as session:
+        for index, row in minute_summary.iterrows():
+            existing_entry = session.exec(
+                select(VisitStats).where(
+                    VisitStats.start == row["start"]
+                    and VisitStats.end == row["end"]
+                    and VisitStats.version_multiqc == row["version_multiqc"]
+                    and VisitStats.version_python == row["version_python"]
+                    and VisitStats.operating_system == row["operating_system"]
+                    and VisitStats.installation_method == row["installation_method"]
+                    and VisitStats.ci_environment == row["ci_environment"]
+                )
+            ).first()
+            if existing_entry:
+                existing_entry.count += row["count"]
+            else:
+                new_entry = VisitStats(**row)
+                session.add(new_entry)
+        session.commit()
+
+
 def insert_download_stats(df: pd.DataFrame) -> pd.DataFrame:
-    df["date"] = pd.to_datetime(df.index)  # adding a separate field date with a type datetime
+    # df has "date" as an index. Re-adding it as a separate field with a type datetime
+    df["date"] = pd.to_datetime(df.index)  
     df = df[["date"] + [c for c in df.columns if c != "date"]]  # place date first
     with Session(engine) as session:
         for index, row in df.iterrows():

@@ -190,23 +190,13 @@ def _summarize_visits() -> Response:
         if len(minute_summary) == 0:
             return PlainTextResponse(content="No new visits to summarize")
 
-        # Replace Unknown with None
-        minute_summary = minute_summary.replace("Unknown", None)
-
         logger.info(f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(minute_summary)} rows to the DB")
         try:
-            minute_summary.to_sql("visitstats", con=engine, if_exists="append", index=False)
-        except IntegrityError as e:
-            open(CSV_FILE_PATH, "w").close()  # Cleaning the file to avoid duplicates
-            return PlainTextResponse(
-                status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR,
-                content=f"Failed to write to the database due to a primary key violation, "
-                f"probably these entries were already added. Cleaning the temporary file "
-                f"{CSV_FILE_PATH}. Error: {e}",
-            )
+            db.insert_usage_stats(minute_summary)
         except Exception as e:
             return PlainTextResponse(
-                status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, content=f"Failed to write to the database: {e}"
+                status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, 
+                content=f"Failed to write to the database: {e}",
             )
         else:
             logger.info(f"Successfully wrote {len(minute_summary)} rows to the DB")
@@ -360,11 +350,10 @@ async def plot_usage(
 ):
     """Plot usage metrics."""
     # Get visit data
-    visits = db.get_visit_stats(start=start, end=end, limit=limit)
-    if not visits:
+    visit_stats = db.get_visit_stats(start=start, end=end, limit=limit)
+    if not visit_stats:
         return PlainTextResponse(content="No usage data available to plot")
-    df = pd.DataFrame.from_records([i.model_dump() for i in visits])
-    df.fillna("Unknown", inplace=True)
+    df = pd.DataFrame.from_records([i.model_dump() for i in visit_stats])
     legend_title_text = models.usage_category_nicenames[categories] if categories else None
 
     # Simplify version numbers if requested
