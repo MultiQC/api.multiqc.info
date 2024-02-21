@@ -1,6 +1,6 @@
 FROM python:3.12.1-slim
 
-RUN apt-get update && apt-get install -y git postgresql
+RUN apt-get update && apt-get install -y git postgresql nano
 
 WORKDIR /code
 

@@ -188,23 +188,23 @@ def _summarize_visits() -> Response:
         try:
             minute_summary.to_sql("visitstats", con=engine, if_exists="append", index=False)
         except IntegrityError as e:
-            logger.error(
-                f"Failed to write to the database due to a primary key violation, "
+            open(CSV_FILE_PATH, "w").close()  # Cleaning the file to avoid duplicates
+            return PlainTextResponse(
+                status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR,
+                content=f"Failed to write to the database due to a primary key violation, "
                 f"probably these entries were already added. Cleaning the temporary file "
-                f"{CSV_FILE_PATH}. Error: {e}"
+                f"{CSV_FILE_PATH}. Error: {e}",
             )
-            # Cleaning the file to avoid duplicates
-            open(CSV_FILE_PATH, "w").close()
         except Exception as e:
-            logger.error(f"Failed to write to the database: {e}")
-            return PlainTextResponse(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, content=str(e))
+            return PlainTextResponse(
+                status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, content=f"Failed to write to the database: {e}"
+            )
         else:
             logger.info(f"Successfully wrote {len(minute_summary)} rows to the DB")
-            # Clear the CSV file on successful write
-            open(CSV_FILE_PATH, "w").close()
-    return PlainTextResponse(
-        content=f"Successfully summarized {len(df)} visits to {len(minute_summary)} per-minute entries",
-    )
+            open(CSV_FILE_PATH, "w").close()  # Clear the CSV file on successful write
+            return PlainTextResponse(
+                content=f"Successfully summarized {len(df)} visits to {len(minute_summary)} per-minute entries",
+            )
 
 
 @app.on_event("startup")
