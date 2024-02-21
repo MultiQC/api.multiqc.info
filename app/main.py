@@ -94,6 +94,7 @@ visit_buffer_lock = Lock()
 
 @app.get("/version")  # log a visit
 async def version(
+    background_tasks: BackgroundTasks,
     version_multiqc: str = "",
     version_python: str = "",
     operating_system: str = "",
@@ -104,6 +105,24 @@ async def version(
     Endpoint for MultiQC that returns the latest release, and logs
     the visit along with basic user environment detail.
     """
+    background_tasks.add_task(
+        _log_visit,
+        version_multiqc=version_multiqc,
+        version_python=version_python,
+        operating_system=operating_system,
+        installation_method=installation_method,
+        ci_environment=ci_environment,
+    )
+    return models.VersionResponse(latest_release=app.latest_release)
+
+
+def _log_visit(
+    version_multiqc: str = "",
+    version_python: str = "",
+    operating_system: str = "",
+    installation_method: str = "",
+    ci_environment: str = "",
+):
     global visit_buffer
     with visit_buffer_lock:
         visit_buffer.append(
@@ -116,8 +135,7 @@ async def version(
                 "ci_environment": ci_environment,
             }
         )
-        logger.info(f"Logging visit, total visits: {len(visit_buffer)}")
-    return models.VersionResponse(latest_release=app.latest_release)
+        logger.info(f"Logging visit, total visits: {len(visit_buffer)}")    
 
 
 # Path to a buffer CSV file to persist recent visits before dumping to the database
