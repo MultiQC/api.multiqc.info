@@ -330,7 +330,7 @@ if os.getenv("ENVIRONMENT") == "DEV":
             msg = f"Failed to update the download stats: {e}"
             raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=msg)
 
-    @app.get("/remove_visits_csv")
+    @app.post("/remove_visits_csv")
     async def remove_visits_csv():
         try:
             if CSV_FILE_PATH.exists():
