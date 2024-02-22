@@ -330,6 +330,22 @@ if os.getenv("ENVIRONMENT") == "DEV":
             msg = f"Failed to update the download stats: {e}"
             raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=msg)
 
+    @app.get("/remove_visits_csv")
+    async def remove_visits_csv():
+        try:
+            if CSV_FILE_PATH.exists():
+                CSV_FILE_PATH.unlink()
+                msg = f"Removed {CSV_FILE_PATH}"
+                logger.info(msg)
+                return PlainTextResponse(content=msg)
+            else:
+                msg = f"File {CSV_FILE_PATH} doesn't exist"
+                logger.info(msg)
+                return PlainTextResponse(content=msg)
+        except Exception as e:
+            msg = f"Failed to remove {CSV_FILE_PATH}: {e}"
+            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=msg)
+
 
 @app.get("/version.php", response_class=PlainTextResponse)
 async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None):
