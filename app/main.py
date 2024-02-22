@@ -25,7 +25,7 @@ from github import Github
 from plotly.graph_objs import Layout
 from sqlalchemy.exc import ProgrammingError
 
-from app import __version__, db, models, strtobool
+from app import __version__, db, models
 from app.downloads import daily
 
 logger = logging.getLogger(__name__)
@@ -212,10 +212,14 @@ def _summarize_visits(interval="5min") -> Response:
         df["end"] = df["start"] + pd.to_timedelta(interval)
         df["start"] = df["start"].dt.strftime("%Y-%m-%d %H:%M")
         df["end"] = df["end"].dt.strftime("%Y-%m-%d %H:%M")
-        df["is_docker"] = df["is_docker"].apply(lambda val: strtobool(val) if val else False)
-        df["is_singularity"] = df["is_singularity"].apply(lambda val: strtobool(val) if val else False)
-        df["is_conda"] = df["is_conda"].apply(lambda val: strtobool(val) if val else False)
-        df["is_ci"] = df["is_ci"].apply(lambda val: strtobool(val) if val else False)
+
+        def strtobool(val) -> bool:
+            return str(val).lower() in ("y", "yes", "t", "true", "on", "1")
+
+        df["is_docker"] = df["is_docker"].apply(strtobool)
+        df["is_singularity"] = df["is_singularity"].apply(strtobool)
+        df["is_conda"] = df["is_conda"].apply(strtobool)
+        df["is_ci"] = df["is_ci"].apply(strtobool)
         df = df.drop(columns=["timestamp"])
 
         # Summarize visits per user per time interval
