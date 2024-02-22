@@ -31,31 +31,32 @@ from dotenv import load_dotenv
 # Load environment variables from the .env file
 load_dotenv()
 
-# CSV path location to cache the acquired data
-cache_path = Path(__file__).parent / "daily.csv"
-# Additional sources of historical data
-sources_path = Path(__file__).parent / "sources"
-
 logger = logging.getLogger(__name__)
+
+PYPI_HISTORIC_PATH = Path(__file__).parent / "sources" / "pypi-historic.csv"
 
 
 @click.command()
 @click.option("--days", type=int, help="Only collect data for the past N days.")
-def main(days: int | None = None):
+def main(days: int | None):
     """
     Combine all the data sources into a single CSV file, with both new and daily stats for each day.
     """
     collect_daily_download_stats(days=days)
 
 
-def collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
-    df = _collect_daily_download_stats(days=days)
+def collect_daily_download_stats(cache_dir: Path | None = None, days: int | None = None) -> pd.DataFrame:
+    cache_dir = cache_dir or Path(__file__).parent / "cache"
+
+    df = _collect_daily_download_stats(cache_dir, days=days)
 
     # Update the existing CSV.
     # Only add data where it's not already present.
     # For existing data, check that it's the same as the new data.
     keys = [k for k in df.keys() if k != "date"]
+    cache_path = cache_dir / "daily.csv"
     if cache_path.exists():
+        logger.info(f"Loading existing daily downloads stats from cache location {cache_path}")
         existing_df = pd.read_csv(
             cache_path,
             dtype={k: "date" if k == "date" else "Int64" for k in keys},  # Int64 is a nullable integer version of int64
@@ -72,7 +73,8 @@ def collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
     return df
 
 
-def _collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
+def _collect_daily_download_stats(cache_dir: Path, days: int | None = None) -> pd.DataFrame:
+    logger.info("Collecting PyPI stats...")
     df = get_pypi(days=days)
 
     logger.info("Collecting BioConda stats...")
@@ -80,7 +82,7 @@ def _collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
         df = df.merge(df_bioconda, on="date", how="outer").sort_values("date")
 
     logger.info("Collecting BioContainers (Quay mirror) stats...")
-    df_quay = get_biocontainers_quay(days=days)
+    df_quay = get_biocontainers_quay(cache_dir, days=days)
     df = df.merge(df_quay, on="date", how="outer").sort_values("date")
 
     logger.info("Collecting GitHub PRs...")
@@ -88,7 +90,7 @@ def _collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
     df = df.merge(df_prs, on="date", how="outer").sort_values("date")
 
     logger.info("Collecting GitHub modules...")
-    df_modules = github_modules(days=days)
+    df_modules = github_modules(cache_dir, days=days)
     df = df.merge(df_modules, on="date", how="outer").sort_values("date")
 
     today = pd.to_datetime("today").strftime("%Y-%m-%d")
@@ -166,9 +168,9 @@ def get_pypi_historic():
     ''', project_id=os.environ["GCP_PROJECT"])
     ```
     """
-    pypi_path = sources_path / "pypi-historic.csv"
+    logger.info(f"Loading historic PyPI stats from {PYPI_HISTORIC_PATH}")
     df = pd.read_csv(
-        pypi_path,
+        PYPI_HISTORIC_PATH,
         parse_dates=["download_day"],
         dtype={"total_downloads": int},
     ).rename(columns={"download_day": "date", "total_downloads": "downloads"})
@@ -236,7 +238,7 @@ def biocontainers_aws_total():
     return count
 
 
-def get_biocontainers_quay(days: int | None = None):
+def get_biocontainers_quay(cache_dir: Path, days: int | None = None):
     """
     For the last 3 months, total numbers of BioContainers Quay.io mirror downloads.
     """
@@ -252,7 +254,7 @@ def get_biocontainers_quay(days: int | None = None):
     df.sort_values("date", inplace=True)
     df = df.set_index("date")
     if days is None or days > 90:
-        path = sources_path / "biocontainers-quay-historic.csv"
+        path = cache_dir / "biocontainers-quay-historic.csv"
         if path.exists():
             print(f"Previous Quay stats found at {path}, appending")
             existing_df = pd.read_csv(path, index_col="date", dtype={"count": "Int64"})
@@ -357,7 +359,7 @@ def get_github_prs(days: int | None = None):
     return df.set_index("date")
 
 
-def github_modules(days: int | None = None):
+def github_modules(cache_dir: Path, days: int | None = None):
     """
     Daily and total new MultiQC modules.
     """
@@ -367,7 +369,7 @@ def github_modules(days: int | None = None):
     from git import Repo
 
     repo_url = "https://github.com/MultiQC/MultiQC.git"
-    clone_path = sources_path / "MultiQC"
+    clone_path = cache_dir / "MultiQC"
     if not clone_path.exists():
         Repo.clone_from(repo_url, clone_path)
         logger.debug(f"{repo_url} cloned at {clone_path}")

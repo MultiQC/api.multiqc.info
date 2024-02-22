@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-log_path = Path(os.getenv("TMPDIR", "/tmp")) / "multiqc_api.log"
+tmp_path = Path(os.getenv("TMPDIR", "/tmp"))
+log_path = tmp_path / "multiqc_api.log"
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

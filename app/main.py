@@ -266,16 +266,17 @@ def _update_download_stats():
     except ProgrammingError:
         logger.error("The table does not exist, will create and populate with historical data")
         existing_downloads = []
+    cache_dir = Path(os.getenv("MULTIQC_API_CACHE_DIR", os.getenv("TMPDIR", "/tmp")))
     if len(existing_downloads) == 0:  # first time, populate historical data
         logger.info("Collecting historical downloads data...")
-        df = daily.collect_daily_download_stats()
+        df = daily.collect_daily_download_stats(cache_dir=cache_dir)
         logger.info(f"Adding {len(df)} historical entries to the table...")
         db.insert_download_stats(df)
         logger.info(f"Successfully populated {len(df)} historical entries")
     else:  # recent days only
         n_days = 4
         logger.info(f"Updating data for the last {n_days} days...")
-        df = daily.collect_daily_download_stats(days=n_days)
+        df = daily.collect_daily_download_stats(cache_dir=cache_dir, days=n_days)
         logger.info(f"Adding {len(df)} recent entries to the table. Will update existing entries at the same date")
         db.insert_download_stats(df)
         logger.info(f"Successfully updated {len(df)} new daily download statistics")
