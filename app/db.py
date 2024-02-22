@@ -1,11 +1,9 @@
 """Functions to interact with the database."""
 from typing import Optional, Sequence
 
-import logging
 import os
 
 import datetime
-import sys
 
 import pandas as pd
 
@@ -14,11 +12,6 @@ from sqlmodel import create_engine, Field, select, Session, SQLModel
 sql_url = os.getenv("DATABASE_URL")
 assert sql_url is not None, sql_url
 engine = create_engine(sql_url)
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-# Make sure logs are printed to stdout:
-logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 class VisitStats(SQLModel, table=True):

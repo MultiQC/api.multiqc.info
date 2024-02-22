@@ -1,3 +1,5 @@
+import logging
+
 from typing import List, Dict
 
 
@@ -7,7 +9,6 @@ import http
 
 import csv
 import datetime
-import logging
 import os
 from threading import Lock
 
@@ -28,18 +29,6 @@ from app import __version__, db, models
 from app.downloads import daily
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-log_path = Path(os.getenv("TMPDIR", "/tmp")) / "multiqc_api.log"
-fh = logging.FileHandler(log_path)
-fh.setLevel(logging.DEBUG)
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-fh.setFormatter(formatter)
-ch.setFormatter(formatter)
-logger.addHandler(fh)
-logger.addHandler(ch)
-logger.debug(f"Logging to {log_path}")
 
 app = FastAPI(
     title="MultiQC API",
@@ -172,7 +161,9 @@ def _persist_visits() -> Response:
             with open(CSV_FILE_PATH, mode="r") as file:
                 n_visits_file = sum(1 for _ in file)
         if not visit_buffer:
-            return PlainTextResponse(content=f"No new visits to persist. File contains {n_visits_file} entries")
+            msg = f"No new visits to persist. File contains {n_visits_file} entries"
+            logger.info(msg)
+            return PlainTextResponse(content=msg)
         logger.info(
             f"Appending {len(visit_buffer)} visits to {CSV_FILE_PATH} that currently contains {n_visits_file} visits"
         )
@@ -184,10 +175,9 @@ def _persist_visits() -> Response:
         visit_buffer = []
         with open(CSV_FILE_PATH, mode="r") as file:
             n_visits_file = sum(1 for _ in file)
-        logger.info(f"CSV {CSV_FILE_PATH} now contains {n_visits_file} visits")
-        return PlainTextResponse(
-            content=f"Successfully persisted visits to {CSV_FILE_PATH}, file now contains {n_visits_file} entries"
-        )
+        msg = f"Successfully persisted {len(visit_buffer)} visits to {CSV_FILE_PATH}, file now contains {n_visits_file} entries"
+        logger.info(msg)
+        return PlainTextResponse(content=msg)
 
 
 @app.on_event("startup")
@@ -206,6 +196,11 @@ def _summarize_visits(interval="5min") -> Response:
     """
     global visit_buffer_lock
     with visit_buffer_lock:
+        if not CSV_FILE_PATH.exists():
+            msg = f"File {CSV_FILE_PATH} doesn't yet exist, no visits to summarize"
+            logger.info(msg)
+            return PlainTextResponse(content=msg)
+
         df = pd.read_csv(
             CSV_FILE_PATH,
             sep=",",
@@ -226,7 +221,9 @@ def _summarize_visits(interval="5min") -> Response:
         # Summarize visits per user per time interval
         interval_summary = df.groupby(["start", "end"] + visit_fieldnames).size().reset_index(name="count")
         if len(interval_summary) == 0:
-            return PlainTextResponse(content="No new visits to summarize")
+            msg = "No new visits to summarize"
+            logger.info(msg)
+            return PlainTextResponse(content=msg)
 
         logger.info(
             f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(interval_summary)} rows to the DB"
@@ -234,16 +231,17 @@ def _summarize_visits(interval="5min") -> Response:
         try:
             db.insert_visit_stats(interval_summary)
         except Exception as e:
+            msg = f"Failed to write to the database: {e}"
+            logger.error(msg)
             return PlainTextResponse(
                 status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR,
-                content=f"Failed to write to the database: {e}",
+                content=msg,
             )
         else:
-            logger.info(f"Successfully wrote {len(interval_summary)} rows to the DB")
+            msg = f"Successfully summarized {len(df)} visits to {len(interval_summary)} per-interval entries"
+            logger.info(msg)
             open(CSV_FILE_PATH, "w").close()  # Clear the CSV file on successful write
-            return PlainTextResponse(
-                content=f"Successfully summarized {len(df)} visits to {len(interval_summary)} per-interval entries",
-            )
+            return PlainTextResponse(content=msg)
 
 
 @app.on_event("startup")
@@ -269,7 +267,7 @@ def _update_download_stats():
         logger.error("The table does not exist, will create and populate with historical data")
         existing_downloads = []
     if len(existing_downloads) == 0:  # first time, populate historical data
-        logger.info("Collecting historical data...")
+        logger.info("Collecting historical downloads data...")
         df = daily.collect_daily_download_stats()
         logger.info(f"Adding {len(df)} historical entries to the table...")
         db.insert_download_stats(df)
@@ -304,22 +302,29 @@ if os.getenv("ENVIRONMENT") == "DEV":
         try:
             return _persist_visits()
         except Exception as e:
-            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(e))
+            msg = f"Failed to persist the visits: {e}"
+            logger.error(msg)
+            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=msg)
 
     @app.post("/summarize_visits")
     async def summarize_visits_endpoint():
         try:
             return _summarize_visits()
         except Exception as e:
-            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(e))
+            msg = f"Failed to summarize the visits: {e}"
+            logger.error(msg)
+            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=msg)
 
     @app.post("/update_downloads")
     async def update_downloads_endpoint(background_tasks: BackgroundTasks):
         try:
             background_tasks.add_task(_update_download_stats)
-            return PlainTextResponse(content="Queued updating the download stats in the DB")
+            msg = "Queued updating the download stats in the DB"
+            logger.info(msg)
+            return PlainTextResponse(content=msg)
         except Exception as e:
-            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=str(e))
+            msg = f"Failed to update the download stats: {e}"
+            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=msg)
 
 
 @app.get("/version.php", response_class=PlainTextResponse)
@@ -392,7 +397,9 @@ async def plot_usage(
     # Get visit data
     visit_stats = db.get_visit_stats(start=start, end=end, limit=limit)
     if not visit_stats:
-        return PlainTextResponse(content="No usage data available to plot")
+        msg = "No usage data available to plot"
+        logger.info(msg)
+        return PlainTextResponse(content=msg)
     df = pd.DataFrame.from_records([i.model_dump() for i in visit_stats])
     legend_title_text = models.usage_category_nicenames[categories] if categories else None
 

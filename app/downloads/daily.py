@@ -13,12 +13,10 @@ Stores data in a CSV file that can be sent to a database.
 Can be re-run regularly to update the data, so only new data will be added to 
 an existing CSV file.
 """
-
+import logging
 
 import json
-import logging
 import os
-import sys
 from pathlib import Path
 
 import click
@@ -33,16 +31,12 @@ from dotenv import load_dotenv
 # Load environment variables from the .env file
 load_dotenv()
 
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-# Make sure logs are printed to stdout:
-logger.addHandler(logging.StreamHandler(sys.stdout))
-
 # CSV path location to cache the acquired data
 cache_path = Path(__file__).parent / "daily.csv"
 # Additional sources of historical data
 sources_path = Path(__file__).parent / "sources"
+
+logger = logging.getLogger(__name__)
 
 
 @click.command()
@@ -81,28 +75,35 @@ def collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
 def _collect_daily_download_stats(days: int | None = None) -> pd.DataFrame:
     df = get_pypi(days=days)
 
+    logger.info("Collecting BioConda stats...")
     if (df_bioconda := get_bioconda(days=days)) is not None:
         df = df.merge(df_bioconda, on="date", how="outer").sort_values("date")
 
+    logger.info("Collecting BioContainers (Quay mirror) stats...")
     df_quay = get_biocontainers_quay(days=days)
     df = df.merge(df_quay, on="date", how="outer").sort_values("date")
 
+    logger.info("Collecting GitHub PRs...")
     df_prs = get_github_prs(days=days)
     df = df.merge(df_prs, on="date", how="outer").sort_values("date")
 
+    logger.info("Collecting GitHub modules...")
     df_modules = github_modules(days=days)
     df = df.merge(df_modules, on="date", how="outer").sort_values("date")
 
     today = pd.to_datetime("today").strftime("%Y-%m-%d")
 
+    logger.info("Getting BioContainers (AWS mirror) stats...")
     if aws_total := biocontainers_aws_total():
         df_aws = pd.DataFrame([[today, aws_total]], columns=["date", "biocontainers_aws_total"]).set_index("date")
         df = df.merge(df_aws, on="date", how="outer")
 
+    logger.info("Getting DockerHub stats...")
     if dh_count := dockerhub_total():
         df_dockerhub = pd.DataFrame([[today, dh_count]], columns=["date", "dockerhub_total"]).set_index("date")
         df = df.merge(df_dockerhub, on="date", how="outer")
 
+    logger.info("Getting GitHub clones...")
     if clones := github_clones_total():
         df_clones = pd.DataFrame([[today, clones]], columns=["date", "clones_total"]).set_index("date")
         df = df.merge(df_clones, on="date", how="outer")
