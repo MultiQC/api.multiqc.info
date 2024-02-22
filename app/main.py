@@ -25,7 +25,7 @@ from github import Github
 from plotly.graph_objs import Layout
 from sqlalchemy.exc import ProgrammingError
 
-from app import __version__, db, models
+from app import __version__, db, models, strtobool
 from app.downloads import daily
 
 logger = logging.getLogger(__name__)
@@ -266,17 +266,16 @@ def _update_download_stats():
     except ProgrammingError:
         logger.error("The table does not exist, will create and populate with historical data")
         existing_downloads = []
-    cache_dir = Path(os.getenv("MULTIQC_API_CACHE_DIR", os.getenv("TMPDIR", "/tmp")))
     if len(existing_downloads) == 0:  # first time, populate historical data
         logger.info("Collecting historical downloads data...")
-        df = daily.collect_daily_download_stats(cache_dir=cache_dir)
+        df = daily.collect_daily_download_stats()
         logger.info(f"Adding {len(df)} historical entries to the table...")
         db.insert_download_stats(df)
         logger.info(f"Successfully populated {len(df)} historical entries")
     else:  # recent days only
         n_days = 4
-        logger.info(f"Updating data for the last {n_days} days...")
-        df = daily.collect_daily_download_stats(cache_dir=cache_dir, days=n_days)
+        logger.info(f"Updating downloads data for the last {n_days} days...")
+        df = daily.collect_daily_download_stats(days=n_days)
         logger.info(f"Adding {len(df)} recent entries to the table. Will update existing entries at the same date")
         db.insert_download_stats(df)
         logger.info(f"Successfully updated {len(df)} new daily download statistics")
@@ -465,28 +464,6 @@ def plotly_image_response(plot, format: PlotlyImageFormats = PlotlyImageFormats.
     elif format == "png":
         return Response(content=plot, media_type="image/png")
     return Response(content=plot)
-
-
-def strtobool(val) -> bool:
-    """
-    Replaces deprecated https://docs.python.org/3.9/distutils/apiref.html#distutils.util.strtobool
-    The deprecation recommendation is to re-implement the function https://peps.python.org/pep-0632/
-
-    ------------------------------------------------------------
-
-    Convert a string representation of truth to true (1) or false (0).
-
-    True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values
-    are 'n', 'no', 'f', 'false', 'off', and '0'.  Raises ValueError if
-    'val' is anything else.
-    """
-    val_str = str(val).lower()
-    if val_str in ("y", "yes", "t", "true", "on", "1"):
-        return True
-    elif val_str in ("n", "no", "f", "false", "off", "0"):
-        return False
-    else:
-        raise ValueError(f"invalid truth value {val!r}")
 
 
 if __name__ == "__main__":

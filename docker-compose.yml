@@ -12,7 +12,6 @@ services:
     environment:
       # Set in .env
       GITHUB_TOKEN: $GITHUB_TOKEN
-      MULTIQC_API_CACHE_DIR: /code/app/downloads/cache
       # Matches the "db" service below
       DATABASE_URL: mysql+pymysql://root:1@db:3306/multiqc
     depends_on:
