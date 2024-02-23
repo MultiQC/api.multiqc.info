@@ -106,6 +106,7 @@ async def version(
     """
     background_tasks.add_task(
         _log_visit,
+        timestamp=datetime.datetime.now().isoformat(),
         version_multiqc=version_multiqc,
         version_python=version_python,
         operating_system=operating_system,
@@ -118,6 +119,7 @@ async def version(
 
 
 def _log_visit(
+    timestamp: str,
     version_multiqc: str = "",
     version_python: str = "",
     operating_system: str = "",
@@ -130,7 +132,7 @@ def _log_visit(
     with visit_buffer_lock:
         visit_buffer.append(
             {
-                "timestamp": datetime.datetime.now().isoformat(),
+                "timestamp": timestamp,
                 "version_multiqc": version_multiqc,
                 "version_python": version_python,
                 "operating_system": operating_system,
@@ -362,14 +364,17 @@ async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None
     Accessed by MultiQC versions 1.14 and earlier,
     after being redirected to by https://multiqc.info/version.php
     """
-    global visit_buffer
-    with visit_buffer_lock:
-        visit_buffer.append(
-            {
-                "timestamp": datetime.datetime.now().isoformat(),
-                "version_multiqc": v,
-            }
-        )
+    background_tasks.add_task(
+        _log_visit,
+        timestamp=datetime.datetime.now().isoformat(),
+        version_multiqc=v,
+        version_python="",
+        operating_system="",
+        is_docker="",
+        is_singularity="",
+        is_conda="",
+        is_ci="",
+    )
     return app.latest_release.version
 
 
