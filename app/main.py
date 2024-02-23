@@ -153,14 +153,14 @@ def _log_visit(
 CSV_FILE_PATH = Path(os.getenv("TMPDIR", "/tmp")) / "visits.csv"
 
 
-def _persist_visits(called_from_endpoint=False) -> Optional[Response]:
+def _persist_visits(verbose=False) -> Optional[Response]:
     """
     Write visits from memory to a CSV file.
     """
     global visit_buffer_lock
     global visit_buffer
     with visit_buffer_lock:
-        if called_from_endpoint:
+        if verbose:
             n_visits_file = 0
             if CSV_FILE_PATH.exists():
                 with open(CSV_FILE_PATH, mode="r") as file:
@@ -175,7 +175,7 @@ def _persist_visits(called_from_endpoint=False) -> Optional[Response]:
             writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + visit_fieldnames)
             writer.writerows(visit_buffer)
 
-        if called_from_endpoint:
+        if verbose:
             with open(CSV_FILE_PATH, mode="r") as file:
                 n_visits_file = sum(1 for _ in file)
             msg = (
@@ -186,7 +186,7 @@ def _persist_visits(called_from_endpoint=False) -> Optional[Response]:
 
         visit_buffer = []  # Reset the buffer
 
-        if called_from_endpoint:
+        if verbose:
             return PlainTextResponse(content=msg)
 
     return None
@@ -206,7 +206,7 @@ def _summarize_visits(interval="5min") -> Response:
     """
     Summarize visits from the CSV file and write to the database
     """
-    _persist_visits()
+    _persist_visits(verbose=True)
     global visit_buffer_lock
     with visit_buffer_lock:
         if not CSV_FILE_PATH.exists():
@@ -314,7 +314,7 @@ async def update_downloads(background_tasks: BackgroundTasks):
 @app.post("/persist_visits")
 async def persist_visits_endpoint():
     try:
-        return _persist_visits(called_from_endpoint=True)
+        return _persist_visits(verbose=True)
     except Exception as e:
         msg = f"Failed to persist the visits: {e}"
         logger.error(msg)
