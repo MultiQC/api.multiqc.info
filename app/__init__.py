@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 
 import logging
+from logging.handlers import RotatingFileHandler
 
 from dotenv import load_dotenv
 
@@ -19,7 +20,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(log_path),
+        RotatingFileHandler(log_path, maxBytes=10_000, backupCount=10),
     ],
 )
 logging.debug(f"Logging to {log_path}")

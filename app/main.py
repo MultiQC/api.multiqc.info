@@ -27,6 +27,7 @@ from app.downloads import daily
 
 logger = logging.getLogger(__name__)
 
+
 app = FastAPI(
     title="MultiQC API",
     description="MultiQC API service, providing run-time information about available updates.",
@@ -58,6 +59,10 @@ app.latest_release = get_latest_release()
 
 @app.on_event("startup")
 async def startup():
+    # Add timestamp to the uvicorn logger
+    logger = logging.getLogger("uvicorn.access")
+    for h in logger.handlers:
+        h.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
     # Initialise the DB and tables on server startup
     db.create_db_and_tables()
     # Sync latest version tag using GitHub API
@@ -201,6 +206,7 @@ def _summarize_visits(interval="5min") -> Response:
     """
     Summarize visits from the CSV file and write to the database
     """
+    _persist_visits()
     global visit_buffer_lock
     with visit_buffer_lock:
         if not CSV_FILE_PATH.exists():
@@ -338,6 +344,7 @@ async def update_downloads_endpoint(background_tasks: BackgroundTasks):
 
 
 if os.getenv("ENVIRONMENT") == "DEV":
+
     @app.post("/clean_visits_csv_file")
     async def clean_visits_csv_file():
         try:
