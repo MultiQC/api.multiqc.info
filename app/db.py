@@ -22,6 +22,8 @@ class VisitStats(SQLModel, table=True):
     coming from each source.
     """
 
+    __tablename__ = "multiqc_api_visits_stats"
+
     id: int | None = Field(default=None, primary_key=True)
     start: datetime.datetime
     end: datetime.datetime
@@ -35,10 +37,12 @@ class VisitStats(SQLModel, table=True):
     count: int
 
 
-class DownloadStatsDaily(SQLModel, table=True):
+class DownloadStats(SQLModel, table=True):
     """
     Daily download statistics.
     """
+
+    __tablename__ = "multiqc_api_downloads_stats"
 
     date: datetime.datetime = Field(primary_key=True)
     pip_new: Optional[int] = None
@@ -87,17 +91,17 @@ def get_download_stats(
     start: datetime.datetime | None = None,
     end: datetime.datetime | None = None,
     limit: int | None = None,
-) -> Sequence[DownloadStatsDaily]:
+) -> Sequence[DownloadStats]:
     """Return list of daily download statistics from the DB."""
     with Session(engine) as session:
-        statement = select(DownloadStatsDaily)
+        statement = select(DownloadStats)
         if start:
-            statement.where(DownloadStatsDaily.date >= start)  # type: ignore
+            statement.where(DownloadStats.date >= start)  # type: ignore
         if end:
-            statement.where(DownloadStatsDaily.date <= end)  # type: ignore
+            statement.where(DownloadStats.date <= end)  # type: ignore
         if limit:
             statement.limit(limit)
-        statement.order_by(DownloadStatsDaily.date.desc())  # type: ignore
+        statement.order_by(DownloadStats.date.desc())  # type: ignore
         return session.exec(statement).all()
 
 
@@ -116,14 +120,12 @@ def insert_download_stats(df: pd.DataFrame) -> pd.DataFrame:
     with Session(engine) as session:
         for index, row in df.iterrows():
             row = row.where(pd.notna(row), None)
-            existing_entry = session.exec(
-                select(DownloadStatsDaily).where(DownloadStatsDaily.date == row["date"])
-            ).first()
+            existing_entry = session.exec(select(DownloadStats).where(DownloadStats.date == row["date"])).first()
             if existing_entry:
                 for key, value in row.items():
                     setattr(existing_entry, key, value)
             else:
-                new_entry = DownloadStatsDaily(**row)
+                new_entry = DownloadStats(**row)
                 session.add(new_entry)
         session.commit()
     return df
