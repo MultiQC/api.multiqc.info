@@ -1,7 +1,6 @@
 import logging
 
-from typing import List, Dict
-
+from typing import List, Dict, Optional
 
 from pathlib import Path
 
@@ -149,32 +148,43 @@ def _log_visit(
 CSV_FILE_PATH = Path(os.getenv("TMPDIR", "/tmp")) / "visits.csv"
 
 
-def _persist_visits() -> Response:
+def _persist_visits(called_from_endpoint=False) -> Optional[Response]:
     """
-    Write visits from memory to a CSV file
+    Write visits from memory to a CSV file.
     """
     global visit_buffer_lock
     global visit_buffer
     with visit_buffer_lock:
-        n_visits_file = 0
-        if CSV_FILE_PATH.exists():
-            with open(CSV_FILE_PATH, mode="r") as file:
-                n_visits_file = sum(1 for _ in file)
-        if not visit_buffer:
-            return PlainTextResponse(content=f"No new visits to persist. File contains {n_visits_file} entries")
-        logger.debug(
-            f"Appending {len(visit_buffer)} visits to {CSV_FILE_PATH} that currently contains {n_visits_file} visits"
-        )
+        if called_from_endpoint:
+            n_visits_file = 0
+            if CSV_FILE_PATH.exists():
+                with open(CSV_FILE_PATH, mode="r") as file:
+                    n_visits_file = sum(1 for _ in file)
+            if not visit_buffer:
+                return PlainTextResponse(content=f"No new visits to persist. File contains {n_visits_file} entries")
+            logger.debug(
+                f"Appending {len(visit_buffer)} visits to {CSV_FILE_PATH} that currently contains {n_visits_file} visits"
+            )
+
         with open(CSV_FILE_PATH, mode="a") as file:
             writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + visit_fieldnames)
             writer.writerows(visit_buffer)
 
-        visit_buffer = []
-        with open(CSV_FILE_PATH, mode="r") as file:
-            n_visits_file = sum(1 for _ in file)
-        msg = f"Successfully persisted {len(visit_buffer)} visits to {CSV_FILE_PATH}, file now contains {n_visits_file} entries"
-        logger.debug(msg)
-        return PlainTextResponse(content=msg)
+        if called_from_endpoint:
+            with open(CSV_FILE_PATH, mode="r") as file:
+                n_visits_file = sum(1 for _ in file)
+            msg = (
+                f"Successfully persisted {len(visit_buffer)} visits to {CSV_FILE_PATH}, "
+                f"file now contains {n_visits_file} entries"
+            )
+            logger.debug(msg)
+
+        visit_buffer = []  # Reset the buffer
+
+        if called_from_endpoint:
+            return PlainTextResponse(content=msg)
+
+    return None
 
 
 @app.on_event("startup")
@@ -301,7 +311,7 @@ if os.getenv("ENVIRONMENT") == "DEV":
     @app.post("/persist_visits")
     async def persist_visits_endpoint():
         try:
-            return _persist_visits()
+            return _persist_visits(called_from_endpoint=True)
         except Exception as e:
             msg = f"Failed to persist the visits: {e}"
             logger.error(msg)
