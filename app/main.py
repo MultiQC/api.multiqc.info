@@ -4,8 +4,6 @@ from typing import List, Dict, Optional
 
 from pathlib import Path
 
-import http
-
 import csv
 import datetime
 import os
@@ -17,7 +15,7 @@ from os import getenv
 
 import pandas as pd
 import plotly.express as px
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi_utilities import repeat_every
 from github import Github
@@ -247,7 +245,7 @@ def _summarize_visits(interval="5min") -> Response:
             msg = f"Failed to write to the database: {e}"
             logger.error(msg)
             return PlainTextResponse(
-                status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR,
+                status_code=status.INTERNAL_SERVER_ERROR,
                 content=msg,
             )
         else:
@@ -307,40 +305,41 @@ async def update_downloads(background_tasks: BackgroundTasks):
     background_tasks.add_task(_update_download_stats)
 
 
+@app.post("/persist_visits")
+async def persist_visits_endpoint():
+    try:
+        return _persist_visits(called_from_endpoint=True)
+    except Exception as e:
+        msg = f"Failed to persist the visits: {e}"
+        logger.error(msg)
+        raise HTTPException(status_code=status.INTERNAL_SERVER_ERROR, detail=msg)
+
+
+@app.post("/summarize_visits")
+async def summarize_visits_endpoint():
+    try:
+        return _summarize_visits()
+    except Exception as e:
+        msg = f"Failed to summarize the visits: {e}"
+        logger.error(msg)
+        raise HTTPException(status_code=status.INTERNAL_SERVER_ERROR, detail=msg)
+
+
+@app.post("/update_downloads")
+async def update_downloads_endpoint(background_tasks: BackgroundTasks):
+    try:
+        background_tasks.add_task(_update_download_stats)
+        msg = "Queued updating the download stats in the DB"
+        logger.info(msg)
+        return PlainTextResponse(content=msg)
+    except Exception as e:
+        msg = f"Failed to update the download stats: {e}"
+        raise HTTPException(status_code=status.INTERNAL_SERVER_ERROR, detail=msg)
+
+
 if os.getenv("ENVIRONMENT") == "DEV":
-    # Add endpoints to trigger the cron jobs manually, available only when developing
-
-    @app.post("/persist_visits")
-    async def persist_visits_endpoint():
-        try:
-            return _persist_visits(called_from_endpoint=True)
-        except Exception as e:
-            msg = f"Failed to persist the visits: {e}"
-            logger.error(msg)
-            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=msg)
-
-    @app.post("/summarize_visits")
-    async def summarize_visits_endpoint():
-        try:
-            return _summarize_visits()
-        except Exception as e:
-            msg = f"Failed to summarize the visits: {e}"
-            logger.error(msg)
-            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=msg)
-
-    @app.post("/update_downloads")
-    async def update_downloads_endpoint(background_tasks: BackgroundTasks):
-        try:
-            background_tasks.add_task(_update_download_stats)
-            msg = "Queued updating the download stats in the DB"
-            logger.info(msg)
-            return PlainTextResponse(content=msg)
-        except Exception as e:
-            msg = f"Failed to update the download stats: {e}"
-            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=msg)
-
-    @app.post("/remove_visits_csv")
-    async def remove_visits_csv():
+    @app.post("/clean_visits_csv_file")
+    async def clean_visits_csv_file():
         try:
             if CSV_FILE_PATH.exists():
                 CSV_FILE_PATH.unlink()
@@ -353,11 +352,11 @@ if os.getenv("ENVIRONMENT") == "DEV":
                 return PlainTextResponse(content=msg)
         except Exception as e:
             msg = f"Failed to remove {CSV_FILE_PATH}: {e}"
-            raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail=msg)
+            raise HTTPException(status_code=status.INTERNAL_SERVER_ERROR, detail=msg)
 
 
 @app.get("/version.php", response_class=PlainTextResponse)
-async def version_legacy(background_tasks: BackgroundTasks, v: str | None = None):
+async def version_legacy(background_tasks: BackgroundTasks, v: str = ""):
     """
     Legacy endpoint that mimics response from the old PHP script.
 
