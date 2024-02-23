@@ -141,7 +141,7 @@ def _log_visit(
                 "is_ci": is_ci,
             }
         )
-        logger.info(f"Logging visit, total visits: {len(visit_buffer)}")
+        logger.debug(f"Logging visit, total visits: {len(visit_buffer)}")
 
 
 # Path to a buffer CSV file to persist recent visits before dumping to the database
@@ -161,22 +161,19 @@ def _persist_visits() -> Response:
             with open(CSV_FILE_PATH, mode="r") as file:
                 n_visits_file = sum(1 for _ in file)
         if not visit_buffer:
-            msg = f"No new visits to persist. File contains {n_visits_file} entries"
-            logger.info(msg)
-            return PlainTextResponse(content=msg)
-        logger.info(
+            return PlainTextResponse(content=f"No new visits to persist. File contains {n_visits_file} entries")
+        logger.debug(
             f"Appending {len(visit_buffer)} visits to {CSV_FILE_PATH} that currently contains {n_visits_file} visits"
         )
         with open(CSV_FILE_PATH, mode="a") as file:
             writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + visit_fieldnames)
             writer.writerows(visit_buffer)
 
-        logger.info(f"Persisted {len(visit_buffer)} visits to CSV {CSV_FILE_PATH}")
         visit_buffer = []
         with open(CSV_FILE_PATH, mode="r") as file:
             n_visits_file = sum(1 for _ in file)
         msg = f"Successfully persisted {len(visit_buffer)} visits to {CSV_FILE_PATH}, file now contains {n_visits_file} entries"
-        logger.info(msg)
+        logger.debug(msg)
         return PlainTextResponse(content=msg)
 
 

@@ -15,7 +15,7 @@ load_dotenv()
 tmp_path = Path(os.getenv("TMPDIR", "/tmp"))
 log_path = tmp_path / "multiqc_api.log"
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.DEBUG if os.getenv("ENVIRONMENT") == "DEV" else logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
