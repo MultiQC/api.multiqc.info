@@ -423,8 +423,8 @@ class PlotlyTemplates(str, Enum):
 
 @app.get("/plot_usage")
 async def plot_usage(
-    categories: models.UsageCategory | None = None,
-    interval: models.IntervalTypes = models.IntervalTypes.D,
+    category: models.UsageCategory | None = None,
+    interval: models.IntervalType = models.IntervalType.min,
     start: datetime.datetime | None = None,
     end: datetime.datetime | None = None,
     limit: int | None = None,
@@ -432,27 +432,30 @@ async def plot_usage(
     template: PlotlyTemplates = PlotlyTemplates.simple_white,
 ):
     """Plot usage metrics."""
-    # Get visit data
     visit_stats = db.get_visit_stats(start=start, end=end, limit=limit)
     if not visit_stats:
         msg = "No usage data available to plot"
         logger.info(msg)
         return PlainTextResponse(content=msg)
     df = pd.DataFrame.from_records([i.model_dump() for i in visit_stats])
-    legend_title_text = models.usage_category_nicenames[categories] if categories else None
+    legend_title_text = models.usage_category_nice_names[category] if category else None
 
     # Simplify version numbers if requested
-    if categories in (models.UsageCategory.version_multiqc_simple, models.UsageCategory.version_python_simple):
-        categories = models.UsageCategory[categories.name.replace("_simple", "")]
-        df[categories.name] = df[categories.name].str.replace(r"^v?(\d+\.\d+).+", lambda m: m.group(1), regex=True)
+    if category in (models.UsageCategory.version_multiqc_simple, models.UsageCategory.version_python_simple):
+        category = models.UsageCategory[category.name.replace("_simple", "")]
+        df[category.name] = df[category.name].str.replace(r"^v?(\d+\.\d+).+", lambda m: m.group(1), regex=True)
 
     # Plot histogram of df.count per interval from df.start
+    logger.debug(
+        f"Plotting usage data, color by: {category.name if category else None}, start: {start}, "
+        f"end: {end}, interval: {interval.value}, limit: {limit}, format: {format.name}"
+    )
     fig = px.histogram(
         df,
-        x="start",
+        x=df["start"].dt.to_period(interval.name).astype(str),
         y="count",
-        color=categories.name if categories else None,
-        title="Usage per version per week",
+        color=category.name if category else None,
+        title=f"MultiQC usage per {interval.value}",
     )
     fig.update_layout(
         legend_title_text=legend_title_text,

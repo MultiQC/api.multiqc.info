@@ -35,27 +35,16 @@ class VersionResponse(BaseModel):
     module_warnings: list[ModuleWarning] = []
 
 
-class IntervalTypes(str, Enum):
+class IntervalType(str, Enum):
     """Allowed intervals for the usage endpoint."""
 
-    S = "second"
-    T = "minute"
+    s = "second"
+    min = "minute"
     H = "hour"
     D = "day"
     W = "week"
     M = "month"
     Y = "year"
-
-
-interval_types_plotly = {
-    "second": "S1",
-    "minute": "T1",
-    "hour": "H1",
-    "day": "D1",
-    "week": "W1",
-    "month": "M1",
-    "year": "Y1",
-}
 
 
 class SortTypes(str, Enum):
@@ -79,7 +68,7 @@ class UsageCategory(str, Enum):
     is_ci = "is_ci"
 
 
-usage_category_nicenames = dict(
+usage_category_nice_names = dict(
     version_multiqc="MultiQC version",
     version_multiqc_simple="MultiQC version (simple)",
     version_python="Python version",
