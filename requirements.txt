@@ -11,3 +11,4 @@ psycopg2-binary
 uvicorn
 python-dotenv
 pypistats
+logzio-python-handler

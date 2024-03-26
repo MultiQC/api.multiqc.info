@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 # Load environment variables from the .env file
 load_dotenv()
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("multiqc_api")
 
 SOURCES_DIR = Path(__file__).parent / "sources"
 # Whether we can write back daily.csv and other pulled stats to keep under version control.

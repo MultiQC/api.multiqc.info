@@ -14,6 +14,7 @@ services:
       GITHUB_TOKEN: $GITHUB_TOKEN
       # Matches the "db" service below
       DATABASE_URL: mysql+pymysql://root:1@db:3306/multiqc
+      LOGZIO_TOKEN: $LOGZIO_TOKEN
     depends_on:
       wait-for-db:
         condition: service_completed_successfully

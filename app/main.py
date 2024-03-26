@@ -1,4 +1,5 @@
 import logging
+from logzio.handler import LogzioHandler
 
 from typing import List, Dict, Optional
 
@@ -25,7 +26,10 @@ from sqlalchemy.exc import ProgrammingError
 from app import __version__, db, models
 from app.downloads import daily
 
-logger = logging.getLogger(__name__)
+
+logger = logging.getLogger("multiqc_api")
+
+logger.info("Starting MultiQC API service")
 
 
 app = FastAPI(
@@ -63,6 +67,7 @@ async def startup():
     logger = logging.getLogger("uvicorn.access")
     for h in logger.handlers:
         h.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
     # Initialise the DB and tables on server startup
     db.create_db_and_tables()
     # Sync latest version tag using GitHub API
@@ -145,7 +150,7 @@ def _log_visit(
                 "is_ci": is_ci,
             }
         )
-        logger.debug(f"Logging visit, total visits: {len(visit_buffer)}")
+        logger.debug(f"Logged visit, total visits in buffer: {len(visit_buffer)}")
 
 
 # Path to a buffer CSV file to persist recent visits before dumping to the database
@@ -199,7 +204,7 @@ def _persist_visits(verbose=False) -> Optional[Response]:
     logger=logger,
 )
 async def persist_visits():
-    return _persist_visits()
+    return _persist_visits(verbose=True)
 
 
 def _summarize_visits(interval="5min") -> Response:
