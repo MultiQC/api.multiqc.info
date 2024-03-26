@@ -78,11 +78,11 @@ def get_visit_stats(
         statement = select(VisitStats)
         if start:
             # Ignore type because Visit.called_at can be None for default value
-            statement.where(VisitStats.start >= start)  # type: ignore
+            statement = statement.where(VisitStats.start >= start)  # type: ignore
         if end:
-            statement.where(VisitStats.end <= end)  # type: ignore
+            statement = statement.where(VisitStats.end <= end)  # type: ignore
         if limit:
-            statement.limit(limit)
+            statement = statement.limit(limit)
         statement.order_by(VisitStats.start.desc())  # type: ignore
         return session.exec(statement).all()
 
@@ -129,3 +129,4 @@ def insert_download_stats(df: pd.DataFrame) -> pd.DataFrame:
                 session.add(new_entry)
         session.commit()
     return df
+

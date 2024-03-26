@@ -1,5 +1,4 @@
 import logging
-from logzio.handler import LogzioHandler
 
 from typing import List, Dict, Optional
 
@@ -124,6 +123,21 @@ async def version(
         is_ci=is_ci,
     )
     return models.VersionResponse(latest_release=app.latest_release)
+
+
+@app.get("/health")
+async def health():
+    """
+    Health check endpoint. Checks if the visits table contains records 
+    in the past 10 minutes.
+    """
+    try:
+        visits = db.get_visit_stats(start=datetime.datetime.now() - datetime.timedelta(minutes=10))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    if not visits:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No recent visits found")
+    return PlainTextResponse(content=str(len(visits)))
 
 
 def _log_visit(
