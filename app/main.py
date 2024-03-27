@@ -323,11 +323,11 @@ def _update_download_stats():
     wait_first=True,
     logger=logger,
 )
-async def update_downloads(background_tasks: BackgroundTasks):
+async def update_downloads():
     """
     Repeated task to update the daily download statistics.
     """
-    background_tasks.add_task(_update_download_stats)
+    _update_download_stats()
 
 
 @app.post("/persist_visits")
