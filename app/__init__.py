@@ -30,9 +30,11 @@ ch.setLevel(logging.DEBUG)
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
-logz_handler = LogzioHandler(os.environ['LOGZIO_TOKEN'])
-logz_handler.setFormatter(formatter)
-logz_handler.setLevel(logging.DEBUG)
-logger.addHandler(logz_handler)
+logzio_token = os.getenv("LOGZIO_TOKEN")
+if logzio_token:
+    logz_handler = LogzioHandler(logzio_token)
+    logz_handler.setFormatter(formatter)
+    logz_handler.setLevel(logging.DEBUG)
+    logger.addHandler(logz_handler)
 
 logger.info(f"Logging to {log_path}")
