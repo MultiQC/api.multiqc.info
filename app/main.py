@@ -231,7 +231,7 @@ def _log_visit_task(
         session.commit()
 
 
-def _update_download_stats():
+def _update_download_stats_task():
     """
     Update the daily download statistics in the database
     """
@@ -265,13 +265,13 @@ async def update_downloads():
     """
     Repeated task to update the daily download statistics.
     """
-    _update_download_stats()
+    _update_download_stats_task()
 
 
 @app.post("/update_downloads")
 async def update_downloads_endpoint(background_tasks: BackgroundTasks):
     try:
-        background_tasks.add_task(_update_download_stats)
+        background_tasks.add_task(_update_download_stats_task)
         msg = "Queued updating the download stats in the DB"
         logger.info(msg)
         return PlainTextResponse(content=msg)
