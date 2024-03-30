@@ -88,11 +88,6 @@ async def health():
     return PlainTextResponse(content=str(len(visits)))
 
 
-# In-memory storage for rate limiting
-last_request_time_by_ip = {}
-SECONDS_BEFORE_LOGGING_VISIT_FROM_SAME_IP = 5
-
-
 @app.get("/version")
 async def version(
     background_tasks: BackgroundTasks,
@@ -149,6 +144,12 @@ async def version_legacy(
     return app.latest_release.version
 
 
+# In-memory storage for rate limiting: number of requests within a window per IP
+requests_by_ip = {}
+REQUESTS = 1000  # max requests allowed within a window
+WINDOW = 1  # seconds
+
+
 def _log_visit_endpoint(
     background_tasks: BackgroundTasks,
     request: Request,
@@ -165,39 +166,37 @@ def _log_visit_endpoint(
     """
     # Checking previous request time from this IP. If it's exceeded, we do not want to
     # log the visit in the database, but still return the latest version.
-    current_time = int(time.time())
+    current_time = float(time.time())
     client_ip = request.client.host
-    if (
-        client_ip not in last_request_time_by_ip
-        or current_time - last_request_time_by_ip[client_ip] > SECONDS_BEFORE_LOGGING_VISIT_FROM_SAME_IP
-    ):
-        last_request_time_by_ip[client_ip] = current_time
-        logger.debug(f"Logging visit from {client_ip}")
-        background_tasks.add_task(
-            _log_visit_task,
-            timestamp=datetime.datetime.now().isoformat(),
-            version_multiqc=version_multiqc,
-            version_python=version_python,
-            operating_system=operating_system,
-            is_docker=is_docker,
-            is_singularity=is_singularity,
-            is_conda=is_conda,
-            is_ci=is_ci,
-        )
+    if client_ip not in requests_by_ip:
+        requests_by_ip[client_ip] = {"timestamp": current_time, "count": 1}
+    else:
+        if current_time - requests_by_ip[client_ip]["timestamp"] > WINDOW:
+            requests_by_ip[client_ip] = {"timestamp": current_time, "count": 1}
+        else:
+            requests_by_ip[client_ip]["count"] += 1
+            if requests_by_ip[client_ip]["count"] > REQUESTS:
+                logger.debug(f"Rate limiting requests: skipping logging visit from {client_ip}")
+                print(requests_by_ip)
+                return
 
+    for ip in list(requests_by_ip.keys()):
+        if current_time - requests_by_ip[ip]["timestamp"] > WINDOW:
+            requests_by_ip.pop(ip)
 
-@app.on_event("startup")
-@repeat_every(
-    seconds=60 * 60,  # every hour
-    wait_first=True,
-    logger=logger,
-)
-async def clean_up_rate_limit_counter():
-    logger.debug("Clean up expired rate limiting data")
-    current_time = int(time.time())
-    for k in list(last_request_time_by_ip.keys()):
-        if current_time - last_request_time_by_ip[k] > SECONDS_BEFORE_LOGGING_VISIT_FROM_SAME_IP:
-            last_request_time_by_ip.pop(k)
+    print(requests_by_ip)
+    logger.debug(f"Logging visit from {client_ip}")
+    background_tasks.add_task(
+        _log_visit_task,
+        timestamp=datetime.datetime.now().isoformat(),
+        version_multiqc=version_multiqc,
+        version_python=version_python,
+        operating_system=operating_system,
+        is_docker=is_docker,
+        is_singularity=is_singularity,
+        is_conda=is_conda,
+        is_ci=is_ci,
+    )
 
 
 def _log_visit_task(

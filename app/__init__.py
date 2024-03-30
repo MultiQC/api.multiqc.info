@@ -18,7 +18,7 @@ log_path = tmp_path / "multiqc_api.log"
 logger = logging.getLogger("multiqc_api")
 logger.setLevel(logging.DEBUG)
 
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 fh = RotatingFileHandler(log_path, maxBytes=10_000, backupCount=10)
 fh.setLevel(logging.DEBUG)
 fh.setFormatter(formatter)

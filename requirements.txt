@@ -12,3 +12,4 @@ uvicorn
 python-dotenv
 pypistats
 logzio-python-handler
+rich
