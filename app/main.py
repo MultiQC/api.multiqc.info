@@ -128,11 +128,11 @@ async def version(
 @app.get("/health")
 async def health():
     """
-    Health check endpoint. Checks if the visits table contains records 
-    in the past 10 minutes.
+    Health check endpoint. Checks if the visits table contains records
+    in the past 15 minutes.
     """
     try:
-        visits = db.get_visit_stats(start=datetime.datetime.now() - datetime.timedelta(minutes=10))
+        visits = db.get_visit_stats(start=datetime.datetime.now() - datetime.timedelta(minutes=15))
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     if not visits:
@@ -282,7 +282,7 @@ def _summarize_visits(interval="5min") -> Response:
 
 @app.on_event("startup")
 @repeat_every(
-    seconds=60 * 60 * 1,  # every hour
+    seconds=10 * 60 * 1,  # every 10 minutes
     wait_first=True,
     logger=logger,
 )
