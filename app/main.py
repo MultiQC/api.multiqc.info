@@ -293,6 +293,14 @@ async def summarize_visits():
     return _summarize_visits()
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    Summarize when the app receives a shutdown signal.
+    """
+    _summarize_visits()
+
+
 def _update_download_stats():
     """
     Update the daily download statistics in the database
