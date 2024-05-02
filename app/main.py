@@ -298,7 +298,9 @@ async def shutdown_event():
     """
     Summarize when the app receives a shutdown signal.
     """
+    logger.info("Shutdown called, summarizing visits...")
     _summarize_visits()
+    logger.info("Complete, now ready to shut down")
 
 
 def _update_download_stats():
