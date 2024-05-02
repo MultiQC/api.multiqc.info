@@ -66,6 +66,8 @@ class UsageCategory(str, Enum):
     is_singularity = "is_singularity"
     is_conda = "is_conda"
     is_ci = "is_ci"
+    is_notebook = "is_notebook"
+    interactive_function_name = "interactive_function_name"
 
 
 usage_category_nice_names = dict(
@@ -78,4 +80,6 @@ usage_category_nice_names = dict(
     is_singularity="Singularity",
     is_conda="Conda",
     is_ci="CI environment",
+    is_notebook="Notebook",
+    interactive_function_name="Interactive function",
 )
