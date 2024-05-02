@@ -1,4 +1,5 @@
 """Functions to interact with the database."""
+
 from typing import Optional, Sequence
 
 import os
@@ -34,6 +35,8 @@ class VisitStats(SQLModel, table=True):
     is_singularity: bool
     is_conda: bool
     is_ci: bool
+    is_notebook: bool
+    interactive_function_name: Optional[str]
     count: int
 
 
@@ -129,4 +132,3 @@ def insert_download_stats(df: pd.DataFrame) -> pd.DataFrame:
                 session.add(new_entry)
         session.commit()
     return df
-
