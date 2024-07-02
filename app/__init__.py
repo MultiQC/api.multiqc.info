@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from logzio.handler import LogzioHandler
 from logging.handlers import RotatingFileHandler
 
 load_dotenv()
@@ -18,7 +17,7 @@ log_path = tmp_path / "multiqc_api.log"
 logger = logging.getLogger("multiqc_api")
 logger.setLevel(logging.DEBUG)
 
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 fh = RotatingFileHandler(log_path, maxBytes=10_000, backupCount=10)
 fh.setLevel(logging.DEBUG)
 fh.setFormatter(formatter)
@@ -29,12 +28,5 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
 ch.setFormatter(formatter)
 logger.addHandler(ch)
-
-logzio_token = os.getenv("LOGZIO_TOKEN")
-if logzio_token:
-    logz_handler = LogzioHandler(logzio_token)
-    logz_handler.setFormatter(formatter)
-    logz_handler.setLevel(logging.DEBUG)
-    logger.addHandler(logz_handler)
 
 logger.info(f"Logging to {log_path}")
