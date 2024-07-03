@@ -113,7 +113,7 @@ async def version(
     """
     background_tasks.add_task(
         _log_visit,
-        timestamp=datetime.datetime.now().isoformat(),
+        timestamp=datetime.datetime.now().isoformat(timespec="microseconds"),
         version_multiqc=version_multiqc,
         version_python=version_python,
         operating_system=operating_system,
@@ -240,7 +240,7 @@ def _summarize_visits(interval="5min") -> Response:
             dtype="string",
             na_filter=False,  # prevent empty strings from converting to nan or <NA>
         )
-        df["start"] = pd.to_datetime(df["timestamp"])
+        df["start"] = pd.to_datetime(df["timestamp"], format="%Y-%m-%dT%H:%M:%S.%f", errors="coerce")
         df["end"] = df["start"] + pd.to_timedelta(interval)
         df["start"] = df["start"].dt.strftime("%Y-%m-%d %H:%M")
         df["end"] = df["end"].dt.strftime("%Y-%m-%d %H:%M")
