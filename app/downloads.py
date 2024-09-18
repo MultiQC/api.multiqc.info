@@ -10,9 +10,10 @@ A script to collect current and historic MultiQC download counts, per day:
 
 Stores data in a CSV file that can be sent to a database.
 
-Can be re-run regularly to update the data, so only new data will be added to 
+Can be re-run regularly to update the data, so only new data will be added to
 an existing CSV file.
 """
+
 import logging
 
 import json
@@ -26,14 +27,14 @@ import pandas as pd
 import pypistats
 import requests
 from github import Github
-from dotenv import load_dotenv
+
+from settings import settings
 
 # Load environment variables from the .env file
-load_dotenv()
 
 logger = logging.getLogger("multiqc_api")
 
-SOURCES_DIR = Path(__file__).parent / "sources"
+SOURCES_DIR = Path(__file__).parent / "downloads" / "sources"
 # Whether we can write back daily.csv and other pulled stats to keep under version control.
 # Usually the code dir is not writable in the container environment.
 SOURCES_IS_WRITABLE = os.access(SOURCES_DIR, os.W_OK)
@@ -314,7 +315,7 @@ def get_github_prs(days: int | None = None):
     """
     Daily and total PRs and contributors.
     """
-    g = Github(os.environ["GITHUB_TOKEN"])
+    g = Github(settings.github_token)
     repo = g.get_repo("MultiQC/MultiQC")
     entries = []
     for pr in repo.get_pulls(state="all", sort="created", direction="asc"):
@@ -337,7 +338,7 @@ def get_github_prs(days: int | None = None):
     df["author"] = df["author"].apply(lambda x: x if x != 0 else [])
 
     # Collect the number of new contributors per day
-    contributors = set()
+    contributors: set[str] = set()
     entries = []
     for date, row in df.iterrows():
         authors = set(row.author)

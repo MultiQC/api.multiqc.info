@@ -1,6 +1,7 @@
 import logging
+from contextlib import asynccontextmanager
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, cast
 
 from pathlib import Path
 
@@ -13,33 +14,26 @@ import uvicorn
 from enum import Enum
 from os import getenv
 
+from pydantic import HttpUrl
 import pandas as pd
 import plotly.express as px
 from fastapi import BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.routing import APIRoute
 from fastapi_utilities import repeat_every
 from github import Github
 from plotly.graph_objs import Layout
-from sqlalchemy.exc import ProgrammingError
 
 from app import __version__, db, models
-from app.downloads import daily
-
+from app.utils import strtobool
 
 logger = logging.getLogger("multiqc_api")
 
 logger.info("Starting MultiQC API service")
 
-
-app = FastAPI(
-    title="MultiQC API",
-    description="MultiQC API service, providing run-time information about available updates.",
-    version=__version__,
-    license_info={
-        "name": "Source code available under the MIT Licence",
-        "url": "https://github.com/MultiQC/api.multiqc.info/blob/main/LICENSE",
-    },
-)
+# Add timestamp to the uvicorn logger
+for h in logging.getLogger("uvicorn.access").handlers:
+    h.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
 
 
 def get_latest_release() -> models.LatestRelease:
@@ -53,35 +47,45 @@ def get_latest_release() -> models.LatestRelease:
     return models.LatestRelease(
         version=release.tag_name,
         release_date=release.published_at.date(),
-        html_url=release.html_url,
+        html_url=HttpUrl(release.html_url),
     )
 
 
-app.latest_release = get_latest_release()
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    yield
+    # Summarize when the app receives a shutdown signal.
+    logger.info("Shutdown called, summarizing visits...")
+    _summarize_visits()
+    logger.info("Complete, now ready to shut down")
 
 
-@app.on_event("startup")
-async def startup():
-    # Add timestamp to the uvicorn logger
-    logger = logging.getLogger("uvicorn.access")
-    for h in logger.handlers:
-        h.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+app = FastAPI(
+    title="MultiQC API",
+    description="MultiQC API service, providing run-time information about available " "" "" "" "" "" "" "updates.",
+    version=__version__,
+    license_info={
+        "name": "Source code available under the MIT Licence",
+        "url": "https://github.com/MultiQC/api.multiqc.info/blob/main/LICENSE",
+    },
+    lifespan=lifespan,
+)
 
-    # Initialise the DB and tables on server startup
-    db.create_db_and_tables()
-    # Sync latest version tag using GitHub API
-    app.latest_release = get_latest_release()
+# Sync latest version tag using GitHub API
+latest_release = get_latest_release()
+
+db.create_db_and_tables()
 
 
-@app.on_event("startup")
 @repeat_every(seconds=15 * 60)  # every 15 minutes
 def update_version():
     """Sync latest version tag using GitHub API"""
-    app.latest_release = get_latest_release()
+    global latest_release
+    latest_release = get_latest_release()
 
 
 # Fields to store per visit
-visit_fieldnames = [
+VISIT_FIELDNAMES = [
     "version_multiqc",
     "version_python",
     "operating_system",
@@ -91,7 +95,8 @@ visit_fieldnames = [
     "is_ci",
 ]
 
-# Thread-safe in-memory buffer to accumulate recent visits before writing to the CSV file
+# Thread-safe in-memory buffer to accumulate recent visits before writing to the CSV
+# file
 visit_buffer: List[Dict[str, str]] = []
 visit_buffer_lock = Lock()
 
@@ -122,22 +127,7 @@ async def version(
         is_conda=is_conda,
         is_ci=is_ci,
     )
-    return models.VersionResponse(latest_release=app.latest_release)
-
-
-@app.get("/health")
-async def health():
-    """
-    Health check endpoint. Checks if the visits table contains records
-    in the past 15 minutes.
-    """
-    try:
-        visits = db.get_visit_stats(start=datetime.datetime.now() - datetime.timedelta(minutes=15))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    if not visits:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No recent visits found")
-    return PlainTextResponse(content=str(len(visits)))
+    return models.VersionResponse(latest_release=latest_release)
 
 
 def _log_visit(
@@ -185,20 +175,31 @@ def _persist_visits(verbose=False) -> Optional[Response]:
                 with open(CSV_FILE_PATH, mode="r") as file:
                     n_visits_file = sum(1 for _ in file)
             if not visit_buffer:
-                return PlainTextResponse(content=f"No new visits to persist. File contains {n_visits_file} entries")
+                return PlainTextResponse(
+                    content=f"No new visits to persist. File contains {n_visits_file} "
+                    f""
+                    f""
+                    f""
+                    f""
+                    f""
+                    f""
+                    f"entries"
+                )
             logger.debug(
-                f"Appending {len(visit_buffer)} visits to {CSV_FILE_PATH} that currently contains {n_visits_file} visits"
+                f"Appending {len(visit_buffer)} visits to {CSV_FILE_PATH} that "
+                f"currently contains {n_visits_file} visits"
             )
 
         with open(CSV_FILE_PATH, mode="a") as file:
-            writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + visit_fieldnames)
+            writer: csv.DictWriter = csv.DictWriter(file, fieldnames=["timestamp"] + VISIT_FIELDNAMES)
             writer.writerows(visit_buffer)
 
         if verbose:
             with open(CSV_FILE_PATH, mode="r") as file:
                 n_visits_file = sum(1 for _ in file)
             msg = (
-                f"Successfully persisted {len(visit_buffer)} visits to {CSV_FILE_PATH}, "
+                f"Successfully persisted {len(visit_buffer)} visits to "
+                f"{CSV_FILE_PATH}, "
                 f"file now contains {n_visits_file} entries"
             )
             logger.debug(msg)
@@ -211,7 +212,6 @@ def _persist_visits(verbose=False) -> Optional[Response]:
     return None
 
 
-@app.on_event("startup")
 @repeat_every(
     seconds=10,
     wait_first=True,
@@ -236,7 +236,7 @@ def _summarize_visits(interval="5min") -> Response:
         df = pd.read_csv(
             CSV_FILE_PATH,
             sep=",",
-            names=["timestamp"] + visit_fieldnames,
+            names=["timestamp"] + VISIT_FIELDNAMES,
             dtype="string",
             na_filter=False,  # prevent empty strings from converting to nan or <NA>
         )
@@ -244,10 +244,6 @@ def _summarize_visits(interval="5min") -> Response:
         df["end"] = df["start"] + pd.to_timedelta(interval)
         df["start"] = df["start"].dt.strftime("%Y-%m-%d %H:%M")
         df["end"] = df["end"].dt.strftime("%Y-%m-%d %H:%M")
-
-        def strtobool(val) -> bool:
-            return str(val).lower() in ("y", "yes", "t", "true", "on", "1")
-
         df["is_docker"] = df["is_docker"].apply(strtobool)
         df["is_singularity"] = df["is_singularity"].apply(strtobool)
         df["is_conda"] = df["is_conda"].apply(strtobool)
@@ -255,14 +251,16 @@ def _summarize_visits(interval="5min") -> Response:
         df = df.drop(columns=["timestamp"])
 
         # Summarize visits per user per time interval
-        interval_summary = df.groupby(["start", "end"] + visit_fieldnames).size().reset_index(name="count")
+        interval_summary = df.groupby(["start", "end"] + VISIT_FIELDNAMES).size().reset_index(name="count")
         if len(interval_summary) == 0:
             msg = "No new visits to summarize"
             logger.info(msg)
             return PlainTextResponse(content=msg)
 
         logger.info(
-            f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writing {len(interval_summary)} rows to the DB"
+            f"Summarizing {len(df)} visits in {CSV_FILE_PATH} and writ"
+            f"ing "
+            f"{len(interval_summary)} rows to the DB"
         )
         try:
             db.insert_visit_stats(interval_summary)
@@ -274,13 +272,13 @@ def _summarize_visits(interval="5min") -> Response:
                 content=msg,
             )
         else:
-            msg = f"Successfully summarized {len(df)} visits to {len(interval_summary)} per-interval entries"
+            msg = f"Successfully summarized {len(df)} visits" f" to "
+            f"{len(interval_summary)} per-interval entries"
             logger.info(msg)
             open(CSV_FILE_PATH, "w").close()  # Clear the CSV file on successful write
             return PlainTextResponse(content=msg)
 
 
-@app.on_event("startup")
 @repeat_every(
     seconds=10 * 60 * 1,  # every 10 minutes
     wait_first=True,
@@ -291,53 +289,6 @@ async def summarize_visits():
     Repeated task to summarize visits.
     """
     return _summarize_visits()
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """
-    Summarize when the app receives a shutdown signal.
-    """
-    logger.info("Shutdown called, summarizing visits...")
-    _summarize_visits()
-    logger.info("Complete, now ready to shut down")
-
-
-def _update_download_stats():
-    """
-    Update the daily download statistics in the database
-    """
-    try:
-        existing_downloads = db.get_download_stats()
-    except ProgrammingError:
-        logger.error("The table does not exist, will create and populate with historical data")
-        existing_downloads = []
-    if len(existing_downloads) == 0:  # first time, populate historical data
-        logger.info("Collecting historical downloads data...")
-        df = daily.collect_daily_download_stats()
-        logger.info(f"Adding {len(df)} historical entries to the table...")
-        db.insert_download_stats(df)
-        logger.info(f"Successfully populated {len(df)} historical entries")
-    else:  # recent days only
-        n_days = 4
-        logger.info(f"Updating downloads data for the last {n_days} days...")
-        df = daily.collect_daily_download_stats(days=n_days)
-        logger.info(f"Adding {len(df)} recent entries to the table. Will update existing entries at the same date")
-        db.insert_download_stats(df)
-        logger.info(f"Successfully updated {len(df)} new daily download statistics")
-
-
-@app.on_event("startup")
-@repeat_every(
-    seconds=60 * 60 * 24,  # every day
-    wait_first=True,
-    logger=logger,
-)
-async def update_downloads():
-    """
-    Repeated task to update the daily download statistics.
-    """
-    _update_download_stats()
 
 
 @app.post("/persist_visits")
@@ -357,18 +308,6 @@ async def summarize_visits_endpoint():
     except Exception as e:
         msg = f"Failed to summarize the visits: {e}"
         logger.error(msg)
-        raise HTTPException(status_code=status.INTERNAL_SERVER_ERROR, detail=msg)
-
-
-@app.post("/update_downloads")
-async def update_downloads_endpoint(background_tasks: BackgroundTasks):
-    try:
-        background_tasks.add_task(_update_download_stats)
-        msg = "Queued updating the download stats in the DB"
-        logger.info(msg)
-        return PlainTextResponse(content=msg)
-    except Exception as e:
-        msg = f"Failed to update the download stats: {e}"
         raise HTTPException(status_code=status.INTERNAL_SERVER_ERROR, detail=msg)
 
 
@@ -410,20 +349,21 @@ async def version_legacy(background_tasks: BackgroundTasks, v: str = ""):
         is_conda="",
         is_ci="",
     )
-    return app.latest_release.version
+    return latest_release.version
 
 
 @app.get("/")
-async def index(background_tasks: BackgroundTasks):
+async def index(_: BackgroundTasks):
     """
     Root endpoint for the API.
 
     Returns a list of available endpoints.
     """
+    routes = [cast(APIRoute, r) for r in app.routes]
     return {
-        "message": "Welcome to the MultiQC service API",
+        "message": "Welcome to the MultiQC service",
         "available_endpoints": [
-            {"path": route.path, "name": route.name} for route in app.routes if route.name != "swagger_ui_redirect"
+            {"path": route.path, "name": route.name} for route in routes if route.name != "swagger_ui_redirect"
         ],
     }
 
@@ -476,7 +416,8 @@ async def plot_usage(
 
     # Plot histogram of df.count per interval from df.start
     logger.debug(
-        f"Plotting usage data, color by: {category.name if category else None}, start: {start}, "
+        f"Plotting usage data, color by: {category.name if category else None}, "
+        f"start: {start}, "
         f"end: {end}, interval: {interval.value}, limit: {limit}, format: {format.name}"
     )
     fig = px.histogram(
@@ -534,6 +475,21 @@ def plotly_image_response(plot, format: PlotlyImageFormats = PlotlyImageFormats.
     elif format == "png":
         return Response(content=plot, media_type="image/png")
     return Response(content=plot)
+
+
+@app.get("/health")
+async def health():
+    """
+    Health check endpoint. Checks if the visits table contains records
+    in the past 15 minutes.
+    """
+    try:
+        visits = db.get_visit_stats(start=datetime.datetime.now() - datetime.timedelta(minutes=15))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    if not visits:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No recent visits found")
+    return PlainTextResponse(content=str(len(visits)))
 
 
 if __name__ == "__main__":
