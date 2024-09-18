@@ -1,10 +1,10 @@
 version: "3.8"
 services:
-  web:
-    container_name: multiqc_api
+  visits:
+    container_name: multiqc_api_visits
     restart: always
     build: .
-    command: uvicorn app.main:app ${UVICORN_RELOAD} --host 0.0.0.0
+    command: uvicorn app.app_visits:app ${UVICORN_RELOAD} --host 0.0.0.0
     volumes:
       - .:/code
     ports:
@@ -14,7 +14,40 @@ services:
       GITHUB_TOKEN: $GITHUB_TOKEN
       # Matches the "db" service below
       DATABASE_URL: mysql+pymysql://root:1@db:3306/multiqc
-      LOGZIO_TOKEN: $LOGZIO_TOKEN
+    depends_on:
+      wait-for-db:
+        condition: service_completed_successfully
+  downloads:
+    container_name: multiqc_api_downloads
+    restart: always
+    build: .
+    command: uvicorn app.app_downloads:app ${UVICORN_RELOAD} --host 0.0.0.0
+    volumes:
+      - .:/code
+    ports:
+      - "8008:8000"
+    environment:
+      # Set in .env
+      GITHUB_TOKEN: $GITHUB_TOKEN
+      # Matches the "db" service below
+      DATABASE_URL: mysql+pymysql://root:1@db:3306/multiqc
+    depends_on:
+      wait-for-db:
+        condition: service_completed_successfully
+  runs:
+    container_name: multiqc_api_runs
+    restart: always
+    build: .
+    command: uvicorn app.app_runs:app ${UVICORN_RELOAD} --host 0.0.0.0
+    volumes:
+      - .:/code
+    ports:
+      - "8008:8000"
+    environment:
+      # Set in .env
+      GITHUB_TOKEN: $GITHUB_TOKEN
+      # Matches the "db" service below
+      DATABASE_URL: mysql+pymysql://root:1@db:3306/multiqc
     depends_on:
       wait-for-db:
         condition: service_completed_successfully
