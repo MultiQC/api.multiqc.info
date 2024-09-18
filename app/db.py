@@ -1,4 +1,6 @@
 """Functions to interact with the database."""
+
+import logging
 from typing import Optional, Sequence
 
 import os
@@ -9,9 +11,13 @@ import pandas as pd
 
 from sqlmodel import create_engine, Field, select, Session, SQLModel
 
+from app.utils import strtobool
+
 sql_url = os.getenv("DATABASE_URL")
 assert sql_url is not None, sql_url
 engine = create_engine(sql_url)
+
+logger = logging.getLogger(__name__)
 
 
 class VisitStats(SQLModel, table=True):
@@ -35,6 +41,114 @@ class VisitStats(SQLModel, table=True):
     is_conda: bool
     is_ci: bool
     count: int
+
+
+class User(SQLModel, table=True):
+    __tablename__ = "multiqc_api_user"
+
+    id: int = Field(primary_key=True)
+    ip: str
+
+
+class Run(SQLModel, table=True):
+    __tablename__ = "multiqc_api_run"
+
+    id: int = Field(primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="multiqc_api_user.id")
+    timestamp: datetime.datetime
+    duration_seconds: int
+    version_multiqc: str
+    version_python: str
+    operating_system: str
+    is_docker: bool
+    is_singularity: bool
+    is_conda: bool
+    is_ci: bool
+
+
+class Module(SQLModel, table=True):
+    __tablename__ = "multiqc_api_module"
+
+    id: int = Field(primary_key=True)
+    name: str
+
+
+class SuccessRunToModule(SQLModel, table=True):
+    __tablename__ = "multiqc_api_success_run_to_module"
+
+    id: int = Field(primary_key=True)
+    run_id: int = Field(foreign_key="multiqc_api_run.id")
+    module_id: int = Field(foreign_key="multiqc_api_module.id")
+
+
+class FailureRunToModule(SQLModel, table=True):
+    __tablename__ = "multiqc_api_failure_run_to_module"
+
+    id: int = Field(primary_key=True)
+    run_id: int = Field(foreign_key="multiqc_api_run.id")
+    module_id: int = Field(foreign_key="multiqc_api_module.id")
+
+
+def log_run(
+    timestamp_str: str,
+    duration: str,
+    modules: str,
+    modules_failed: str,
+    version_multiqc: str,
+    version_python: str,
+    operating_system: str,
+    is_docker: str,
+    is_singularity: str,
+    is_conda: str,
+    is_ci: str,
+    user_ip: Optional[str] = None,
+) -> None:
+    """Log a run of MultiQC."""
+    with Session(engine) as session:
+        try:
+            duration_seconds = int(duration)
+        except ValueError:
+            logger.warning(f"Could not parse duration: {duration}")
+            duration_seconds = -1
+
+        timestamp = datetime.datetime.fromisoformat(timestamp_str)
+
+        run = Run(
+            timestamp=timestamp,
+            duration_seconds=duration_seconds,
+            version_multiqc=version_multiqc,
+            version_python=version_python,
+            operating_system=operating_system,
+            is_docker=strtobool(is_docker),
+            is_singularity=strtobool(is_singularity),
+            is_conda=strtobool(is_conda),
+            is_ci=strtobool(is_ci),
+        )
+        session.add(run)
+        session.commit()
+        for _mod in modules.split(","):
+            module = session.exec(select(Module).where(Module.name == _mod)).first()
+            if not module:
+                module = Module(name=_mod)
+                session.add(module)
+                session.commit()
+            session.add(SuccessRunToModule(run_id=run.id, module_id=module.id))
+        for _mod in modules_failed.split(","):
+            module = session.exec(select(Module).where(Module.name == _mod)).first()
+            if not module:
+                module = Module(name=_mod)
+                session.add(module)
+                session.commit()
+            session.add(FailureRunToModule(run_id=run.id, module_id=module.id))
+        session.add(run)
+
+        if user_ip:
+            user = User(ip=user_ip)
+            session.add(user)
+            session.commit()
+            run.user_id = user.id
+
+        session.commit()
 
 
 class DownloadStats(SQLModel, table=True):
@@ -129,4 +243,3 @@ def insert_download_stats(df: pd.DataFrame) -> pd.DataFrame:
                 session.add(new_entry)
         session.commit()
     return df
-
