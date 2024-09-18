@@ -5,12 +5,33 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "api.multiqc.info"
 version = "2023.0"
-dependencies = {file = ["requirements.txt"]}
-optional-dependencies = {dev = { file = ["requirements-dev.txt"] }}
+dependencies = [
+    "fastapi",
+    "fastapi-utilities",
+    "uvicorn",
+    "sqlmodel",
+    "pydantic",
+    "pydantic-settings",
+    "pymysql[rsa]",
+    "psycopg2-binary",
+    "types-requests",
+    # visits
+    "pandas",
+    "plotly",
+    # downloads
+    "gitpython",
+    "PyGithub",
+    "pypistats",
+]
+optional-dependencies = { dev = [
+    "pre-commit",
+    "ruff",
+    "mypy",
+] }
 requires-python = ">=3.12"
 authors = [
-    {name = "Phil Ewels", email = "phil.ewels@seqera.io"},
-    {name = "Vlad Savelyev", email = "vladislav.savelyev@seqera.io"},
+    { name = "Phil Ewels", email = "phil.ewels@seqera.io" },
+    { name = "Vlad Savelyev", email = "vladislav.savelyev@seqera.io" },
 ]
 
 [tool.ruff]
