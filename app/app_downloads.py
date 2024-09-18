@@ -1,6 +1,8 @@
+import asyncio
 import logging
 
 import datetime
+from contextlib import asynccontextmanager
 from typing import cast
 
 import uvicorn
@@ -8,7 +10,6 @@ import uvicorn
 from fastapi import BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.responses import PlainTextResponse
 from fastapi.routing import APIRoute
-from fastapi_utilities import repeat_every
 from sqlalchemy.exc import ProgrammingError
 
 from app import __version__, db
@@ -21,8 +22,25 @@ logger.info("Starting MultiQC API download scraping service")
 for h in logging.getLogger("uvicorn.access").handlers:
     h.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    asyncio.create_task(update_downloads())
+
+    yield
+
+
+async def update_downloads():
+    """
+    Repeated task to update the daily download statistics
+    """
+    while True:
+        _update_download_stats()
+        await asyncio.sleep(60 * 60 * 24)  # 24 hours
+
+
 app = FastAPI(
-    title="MultiQC API",
+    title="MultiQC download scraper service",
     description="MultiQC API service, providing run-time information about available " "updates.",
     version=__version__,
     license_info={
@@ -62,18 +80,6 @@ async def health():
     if not visits:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No recent visits found")
     return PlainTextResponse(content=str(len(visits)))
-
-
-@repeat_every(
-    seconds=60 * 60 * 24,  # every day
-    wait_first=True,
-    logger=logger,
-)
-async def update_downloads():
-    """
-    Repeated task to update the daily download statistics
-    """
-    _update_download_stats()
 
 
 @app.post("/update_downloads")

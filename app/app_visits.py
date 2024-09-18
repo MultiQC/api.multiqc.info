@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -20,7 +21,6 @@ import plotly.express as px
 from fastapi import BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.routing import APIRoute
-from fastapi_utilities import repeat_every
 from github import Github
 from plotly.graph_objs import Layout
 
@@ -53,6 +53,10 @@ def get_latest_release() -> models.LatestRelease:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    asyncio.create_task(update_version())
+    asyncio.create_task(persist_visits())
+    asyncio.create_task(summarize_visits())
+
     yield
     # Summarize when the app receives a shutdown signal.
     logger.info("Shutdown called, summarizing visits...")
@@ -62,7 +66,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="MultiQC API",
-    description="MultiQC API service, providing run-time information about available " "" "" "" "" "" "" "updates.",
+    description="MultiQC API service, providing run-time information about available " "" "" "" "" "" "" "" "updates.",
     version=__version__,
     license_info={
         "name": "Source code available under the MIT Licence",
@@ -77,11 +81,27 @@ latest_release = get_latest_release()
 db.create_db_and_tables()
 
 
-@repeat_every(seconds=15 * 60)  # every 15 minutes
-def update_version():
+async def update_version():
     """Sync latest version tag using GitHub API"""
-    global latest_release
-    latest_release = get_latest_release()
+    while True:
+        await asyncio.sleep(15 * 60)  # every 15 minutes
+        global latest_release
+        latest_release = get_latest_release()
+
+
+async def persist_visits():
+    """Sync latest version tag using GitHub API"""
+    while True:
+        await asyncio.sleep(10)  # every 10 seconds
+        _persist_visits(verbose=True)
+
+
+async def summarize_visits():
+    """Repeated task to summarize visits."""
+    while True:
+        await asyncio.sleep(10 * 60)  # every 10 minutes
+        _summarize_visits()
+        _persist_visits(verbose=True)
 
 
 # Fields to store per visit
@@ -212,15 +232,6 @@ def _persist_visits(verbose=False) -> Optional[Response]:
     return None
 
 
-@repeat_every(
-    seconds=10,
-    wait_first=True,
-    logger=logger,
-)
-async def persist_visits():
-    return _persist_visits(verbose=True)
-
-
 def _summarize_visits(interval="5min") -> Response:
     """
     Summarize visits from the CSV file and write to the database
@@ -272,23 +283,10 @@ def _summarize_visits(interval="5min") -> Response:
                 content=msg,
             )
         else:
-            msg = f"Successfully summarized {len(df)} visits" f" to "
-            f"{len(interval_summary)} per-interval entries"
+            msg = f"Successfully summarized {len(df)} visits to {len(interval_summary)} per-interval entries"
             logger.info(msg)
             open(CSV_FILE_PATH, "w").close()  # Clear the CSV file on successful write
             return PlainTextResponse(content=msg)
-
-
-@repeat_every(
-    seconds=10 * 60 * 1,  # every 10 minutes
-    wait_first=True,
-    logger=logger,
-)
-async def summarize_visits():
-    """
-    Repeated task to summarize visits.
-    """
-    return _summarize_visits()
 
 
 @app.post("/persist_visits")
