@@ -89,6 +89,7 @@ visit_fieldnames = [
     "is_singularity",
     "is_conda",
     "is_ci",
+    "is_uv",
 ]
 
 # Thread-safe in-memory buffer to accumulate recent visits before writing to the CSV file
@@ -106,6 +107,7 @@ async def version(
     is_singularity: str = "",
     is_conda: str = "",
     is_ci: str = "",
+    is_uv: str = "",
 ):
     """
     Endpoint for MultiQC that returns the latest release, and logs
@@ -121,6 +123,7 @@ async def version(
         is_singularity=is_singularity,
         is_conda=is_conda,
         is_ci=is_ci,
+        is_uv=is_uv,
     )
     return models.VersionResponse(latest_release=app.latest_release)
 
@@ -149,6 +152,7 @@ def _log_visit(
     is_singularity: str = "",
     is_conda: str = "",
     is_ci: str = "",
+    is_uv: str = "",
 ):
     global visit_buffer
     with visit_buffer_lock:
@@ -162,6 +166,7 @@ def _log_visit(
                 "is_singularity": is_singularity,
                 "is_conda": is_conda,
                 "is_ci": is_ci,
+                "is_uv": is_uv,
             }
         )
         logger.debug(f"Logged visit, total visits in buffer: {len(visit_buffer)}")
@@ -252,6 +257,7 @@ def _summarize_visits(interval="5min") -> Response:
         df["is_singularity"] = df["is_singularity"].apply(strtobool)
         df["is_conda"] = df["is_conda"].apply(strtobool)
         df["is_ci"] = df["is_ci"].apply(strtobool)
+        df["is_uv"] = df["is_uv"].apply(strtobool)
         df = df.drop(columns=["timestamp"])
 
         # Summarize visits per user per time interval
@@ -409,6 +415,7 @@ async def version_legacy(background_tasks: BackgroundTasks, v: str = ""):
         is_singularity="",
         is_conda="",
         is_ci="",
+        is_uv="",
     )
     return app.latest_release.version
 

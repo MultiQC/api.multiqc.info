@@ -34,6 +34,7 @@ class VisitStats(SQLModel, table=True):
     is_singularity: bool
     is_conda: bool
     is_ci: bool
+    is_uv: bool
     count: int
 
 
