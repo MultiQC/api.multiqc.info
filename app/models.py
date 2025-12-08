@@ -66,6 +66,7 @@ class UsageCategory(str, Enum):
     is_singularity = "is_singularity"
     is_conda = "is_conda"
     is_ci = "is_ci"
+    is_uv = "is_uv"
 
 
 usage_category_nice_names = dict(
@@ -78,4 +79,5 @@ usage_category_nice_names = dict(
     is_singularity="Singularity",
     is_conda="Conda",
     is_ci="CI environment",
+    is_uv="uv",
 )
