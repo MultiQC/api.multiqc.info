@@ -7,6 +7,7 @@ import datetime
 
 import pandas as pd
 
+from sqlalchemy import text
 from sqlmodel import create_engine, Field, select, Session, SQLModel
 
 sql_url = os.getenv("DATABASE_URL")
@@ -35,6 +36,27 @@ class VisitStats(SQLModel, table=True):
     is_conda: bool
     is_ci: bool
     is_uv: bool
+    count: int
+
+
+class VisitDailyStats(SQLModel, table=True):
+    """
+    Daily aggregated visit statistics.
+
+    Populated by a daily task that rolls up from multiqc_api_visits_stats.
+    """
+
+    __tablename__ = "multiqc_api_visits_daily_stats"
+
+    day: datetime.date = Field(primary_key=True)
+    version_multiqc: str = Field(primary_key=True)
+    version_python: str = Field(primary_key=True)
+    operating_system: str = Field(primary_key=True)
+    is_docker: bool = Field(primary_key=True)
+    is_singularity: bool = Field(primary_key=True)
+    is_conda: bool = Field(primary_key=True)
+    is_ci: bool = Field(primary_key=True)
+    is_uv: bool = Field(primary_key=True)
     count: int
 
 
@@ -97,12 +119,12 @@ def get_download_stats(
     with Session(engine) as session:
         statement = select(DownloadStats)
         if start:
-            statement.where(DownloadStats.date >= start)  # type: ignore
+            statement = statement.where(DownloadStats.date >= start)  # type: ignore
         if end:
-            statement.where(DownloadStats.date <= end)  # type: ignore
+            statement = statement.where(DownloadStats.date <= end)  # type: ignore
         if limit:
-            statement.limit(limit)
-        statement.order_by(DownloadStats.date.desc())  # type: ignore
+            statement = statement.limit(limit)
+        statement = statement.order_by(DownloadStats.date.desc())  # type: ignore
         return session.exec(statement).all()
 
 
@@ -112,6 +134,76 @@ def insert_visit_stats(visit_stats: pd.DataFrame):
             new_entry = VisitStats(**row)
             session.add(new_entry)
         session.commit()
+
+
+def has_daily_stats_for_date(day: datetime.date) -> bool:
+    """Check if daily stats already exist for a given date."""
+    with Session(engine) as session:
+        result = session.exec(
+            select(VisitDailyStats).where(VisitDailyStats.day == day).limit(1)
+        ).first()
+        return result is not None
+
+
+def aggregate_visits_for_date(target_date: datetime.date) -> int:
+    """
+    Aggregate visit stats for a specific date and upsert into daily stats table.
+
+    Returns the number of rows inserted/updated.
+    """
+    query = text("""
+        INSERT INTO multiqc_api_visits_daily_stats (
+            day,
+            version_multiqc,
+            version_python,
+            operating_system,
+            is_docker,
+            is_singularity,
+            is_conda,
+            is_ci,
+            is_uv,
+            count
+        )
+        SELECT
+            :target_date AS day,
+            version_multiqc,
+            version_python,
+            operating_system,
+            is_docker,
+            is_singularity,
+            is_conda,
+            is_ci,
+            is_uv,
+            SUM(count) AS count
+        FROM multiqc_api_visits_stats
+        WHERE start >= :target_date AND start < :target_date + INTERVAL '1 day'
+        GROUP BY
+            version_multiqc,
+            version_python,
+            operating_system,
+            is_docker,
+            is_singularity,
+            is_conda,
+            is_ci,
+            is_uv
+        ON CONFLICT (
+            day,
+            version_multiqc,
+            version_python,
+            operating_system,
+            is_docker,
+            is_singularity,
+            is_conda,
+            is_ci,
+            is_uv
+        )
+        DO UPDATE SET count = EXCLUDED.count
+    """)
+
+    with engine.connect() as conn:
+        result = conn.execute(query, {"target_date": target_date})
+        conn.commit()
+        return result.rowcount
 
 
 def insert_download_stats(df: pd.DataFrame) -> pd.DataFrame:

@@ -24,6 +24,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from app import __version__, db, models
 from app.downloads import daily
+from app.db import aggregate_visits_for_date, has_daily_stats_for_date
 
 
 logger = logging.getLogger("multiqc_api")
@@ -344,6 +345,36 @@ async def update_downloads():
     Repeated task to update the daily download statistics.
     """
     _update_download_stats()
+
+
+def _aggregate_daily_visits():
+    """
+    Aggregate yesterday's visit stats into the daily stats table.
+    Skips if yesterday's data has already been aggregated.
+    """
+    yesterday = datetime.date.today() - datetime.timedelta(days=1)
+    if has_daily_stats_for_date(yesterday):
+        logger.info(f"Daily stats for {yesterday} already exist, skipping")
+        return
+    logger.info(f"Aggregating visit stats for {yesterday}...")
+    try:
+        rows = aggregate_visits_for_date(yesterday)
+        logger.info(f"Successfully aggregated {rows} rows for {yesterday}")
+    except Exception as e:
+        logger.error(f"Failed to aggregate visit stats: {e}")
+
+
+@app.on_event("startup")
+@repeat_every(
+    seconds=60 * 60 * 24,  # every day
+    wait_first=True,
+    logger=logger,
+)
+async def aggregate_daily_visits():
+    """
+    Repeated task to aggregate yesterday's visits into daily stats.
+    """
+    _aggregate_daily_visits()
 
 
 @app.post("/persist_visits")
